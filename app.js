@@ -324,11 +324,38 @@ function exportCsv() {
     lines.push([h.id, x, y, z, h.toe.x + ox, h.toe.y + oy, h.toe.z + zShift(), h.length, p.incl, p.inclAz, h.stemming, h.chargeLength, h.mass, h.manual ? 'reczny' : 'siatka']
       .map((v) => (typeof v === 'number' ? +v.toFixed(3) : v)).join(','));
   }
+  const csv = lines.join('\n');
+  $('csvText').value = csv;
+  $('csvbox').hidden = false;
+  // Pobranie pliku (w środowiskach, które blokują pobieranie, zostaje tekst do skopiowania).
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' }));
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
   a.download = 'otwory_strzalowe.csv';
   a.click();
   URL.revokeObjectURL(a.href);
+  status('Eksport gotowy: pobrano plik CSV albo skopiuj tekst poniżej tabeli podsumowania.');
+}
+
+async function copyCsv() {
+  const t = $('csvText');
+  try { await navigator.clipboard.writeText(t.value); status('Skopiowano CSV do schowka.'); }
+  catch { t.select(); status('Zaznaczono tekst. Skopiuj go ręcznie.'); }
+}
+
+// Model przykładowy: ława z obrysem i siatką, żeby od razu było widać działanie.
+async function loadSample(withDesign = true) {
+  try {
+    const res = await fetch('samples/lawa-testowa.obj');
+    if (!res.ok) throw new Error(res.status);
+    await loadFiles([new File([await res.blob()], 'lawa-testowa.obj')]);
+  } catch (e) { return status('Nie udało się wczytać modelu przykładowego.'); }
+  if (!withDesign) return;
+  const { size } = state;
+  const at = (fx, fy) => { const x = (fx - 0.5) * size.x, y = (fy - 0.5) * size.y; return { x, y, z: sampleZ(x, y) ?? 0 }; };
+  state.polygon = [at(0.1, 0.15), at(0.5, 0.15), at(0.5, 0.8), at(0.1, 0.8)];
+  state.closed = true;
+  generate();
+  status(`Przykład: syntetyczna ława, ${state.holes.length} otworów. Wczytaj własny model OBJ w kroku 1.`);
 }
 
 // ---------- interakcja ----------
@@ -388,6 +415,9 @@ $('clearPoly').onclick = () => { state.polygon = []; state.closed = false; state
 $('generate').onclick = generate;
 $('clearHoles').onclick = () => { state.grid = []; state.manual = []; update(); };
 $('export').onclick = exportCsv;
+$('csvCopy').onclick = copyCsv;
+$('csvClose').onclick = () => { $('csvbox').hidden = true; };
+$('loadSample').onclick = () => loadSample();
 $('suggest').onclick = () => {
   const s = blast.suggestParameters(num('diameter'));
   for (const k of ['burden', 'spacing', 'subdrill', 'stemming']) $(k).value = s[k];
@@ -406,6 +436,7 @@ view.addEventListener('dragleave', () => view.classList.remove('dragging'));
 view.addEventListener('drop', (e) => { e.preventDefault(); view.classList.remove('dragging'); loadFiles(e.dataTransfer.files); });
 
 renderStats();
+loadSample();
 
 // do testów w przeglądarce
-window.__app = { state, loadFiles, generate, closePolygon };
+window.__app = { state, loadFiles, generate, closePolygon, loadSample };

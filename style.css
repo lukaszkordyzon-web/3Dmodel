@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #14171c; --panel: #1b1f26; --line: #2c333d; --text: #e4e8ee; --muted: #8b95a3;
   --accent: #f0a30a; --accent-text: #1b1300;
 }
@@ -48,3 +49,8 @@ tbody tr:nth-child(even) { background: #20262e; }
   #app { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
   #view { order: -1; } #panel { border-right: 0; border-top: 1px solid var(--line); }
 }
+[hidden] { display: none !important; }
+#loadSample { width: 100%; margin-top: 8px; }
+#csvbox { margin-top: 10px; }
+textarea { width: 100%; padding: 6px 8px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 4px; font: 12px/1.4 ui-monospace, monospace; white-space: pre; }
+@media (pointer: coarse) { input[type=number] { font-size: 16px; } button { min-height: 40px; } }

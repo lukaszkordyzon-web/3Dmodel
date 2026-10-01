@@ -20,6 +20,7 @@
         <input type="file" id="files" multiple accept=".obj,.mtl,.jpg,.jpeg,.png,.tif,.tiff">
         <span>Wybierz pliki lub przeciągnij na widok 3D</span>
       </label>
+      <button id="loadSample" class="ghost">Wczytaj model przykładowy</button>
       <p class="hint">Wskaż razem: <code>.obj</code>, <code>.mtl</code> i wszystkie tekstury (jpg/png). Samo <code>.obj</code> też zadziała.</p>
       <details>
         <summary>Przesunięcie współrzędnych (offset Pix4D)</summary>
@@ -81,6 +82,10 @@
       <h2>Podsumowanie</h2>
       <dl id="stats"></dl>
       <button id="export" class="primary">Eksport CSV</button>
+      <div id="csvbox" hidden>
+        <textarea id="csvText" readonly rows="6" spellcheck="false"></textarea>
+        <div class="row"><button id="csvCopy">Kopiuj</button><button id="csvClose" class="ghost">Zamknij</button></div>
+      </div>
     </section>
 
     <section>
