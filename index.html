@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projekt wierceń strzałowych</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <h1>Projekt wierceń strzałowych</h1>
+
+    <section>
+      <h2>1. Model terenu (Pix4D)</h2>
+      <label class="file">
+        <input type="file" id="files" multiple accept=".obj,.mtl,.jpg,.jpeg,.png,.tif,.tiff">
+        <span>Wybierz pliki lub przeciągnij na widok 3D</span>
+      </label>
+      <p class="hint">Wskaż razem: <code>.obj</code>, <code>.mtl</code> i wszystkie tekstury (jpg/png). Samo <code>.obj</code> też zadziała.</p>
+      <details>
+        <summary>Przesunięcie współrzędnych (offset Pix4D)</summary>
+        <div class="grid3">
+          <label>X<input type="number" id="offX" value="0" step="any"></label>
+          <label>Y<input type="number" id="offY" value="0" step="any"></label>
+          <label>Z<input type="number" id="offZ" value="0" step="any"></label>
+        </div>
+        <p class="hint">Dodawane do współrzędnych w tabeli i eksporcie CSV, jeśli model ma lokalny początek układu.</p>
+      </details>
+    </section>
+
+    <section>
+      <h2>2. Obrys strzału</h2>
+      <div class="modes" id="modes">
+        <label><input type="radio" name="mode" value="orbit" checked> Widok</label>
+        <label><input type="radio" name="mode" value="poly"> Rysuj obrys</label>
+        <label><input type="radio" name="mode" value="hole"> Dodaj otwór</label>
+        <label><input type="radio" name="mode" value="del"> Usuń otwór</label>
+      </div>
+      <div class="row">
+        <button id="closePoly">Zamknij obrys</button>
+        <button id="clearPoly" class="ghost">Wyczyść obrys</button>
+      </div>
+      <p class="hint">W trybie „Rysuj obrys” klikaj kolejne wierzchołki na modelu, potem „Zamknij obrys”.</p>
+    </section>
+
+    <section>
+      <h2>3. Siatka</h2>
+      <div class="grid2">
+        <label>Średnica otworu [mm]<input type="number" id="diameter" value="115" min="30" step="1"></label>
+        <label>Gęstość MW [g/cm³]<input type="number" id="density" value="0.85" min="0.5" step="0.01"></label>
+        <label>Odstęp rzędów (burden) [m]<input type="number" id="burden" value="3.5" min="0.5" step="0.1" data-regen></label>
+        <label>Odstęp w rzędzie [m]<input type="number" id="spacing" value="4" min="0.5" step="0.1" data-regen></label>
+        <label>Kierunek rzędów [°]<input type="number" id="rowAz" value="0" step="1" data-regen></label>
+        <label>Odsunięcie od obrysu [m]<input type="number" id="edge" value="0" min="0" step="0.1" data-regen></label>
+      </div>
+      <label class="check"><input type="checkbox" id="stagger" checked data-regen> Szachownica (rzędy przesunięte o ½ odstępu)</label>
+      <button id="suggest" class="ghost">Wartości orientacyjne wg średnicy</button>
+      <div class="row">
+        <button id="generate" class="primary">Generuj siatkę</button>
+        <button id="clearHoles" class="ghost">Usuń wszystkie otwory</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. Otwór i ładunek</h2>
+      <div class="grid2">
+        <label>Poziom spągu [m n.p.m.]<input type="number" id="floor" value="0" step="0.1"></label>
+        <label>Podwiert [m]<input type="number" id="subdrill" value="1.1" min="0" step="0.1"></label>
+        <label>Przybitka / orczyk [m]<input type="number" id="stemming" value="2.4" min="0" step="0.1"></label>
+        <label>Nachylenie od pionu [°]<input type="number" id="incl" value="0" min="0" max="45" step="1"></label>
+        <label>Azymut nachylenia [°]<input type="number" id="inclAz" value="0" step="1"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="showFloor" checked> Pokaż płaszczyznę spągu</label>
+    </section>
+
+    <section>
+      <h2>Podsumowanie</h2>
+      <dl id="stats"></dl>
+      <button id="export" class="primary">Eksport CSV</button>
+    </section>
+
+    <section>
+      <h2>Otwory</h2>
+      <div class="tablewrap"><table id="holes"><thead>
+        <tr><th>Nr</th><th>X</th><th>Y</th><th>Z</th><th>L [m]</th><th>kg</th></tr>
+      </thead><tbody></tbody></table></div>
+    </section>
+
+    <p class="warn">Narzędzie pomocnicze. Projekt strzałowy musi zweryfikować i zatwierdzić uprawniona osoba (kierownik strzałowy / dozór ruchu). Wartości orientacyjne nie zastępują obliczeń i przepisów obowiązujących w zakładzie.</p>
+  </aside>
+
+  <main id="view">
+    <canvas id="canvas"></canvas>
+    <div id="status">Wczytaj model OBJ, aby zacząć.</div>
+    <div id="drop">Upuść pliki tutaj</div>
+  </main>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
