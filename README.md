@@ -9,6 +9,13 @@ Aplikacja jest statyczna (bez budowania, Three.js w `vendor/`, działa offline):
 
 Do próby: `samples/lawa-testowa.obj` (syntetyczna ława, `node gen-sample.mjs`).
 
+## Streamlit
+Repozytorium jest gotowe do wdrożenia w Streamlit Community Cloud (`streamlit_app.py`, `requirements.txt`).
+Aplikacja 3D to gotowy plik `embed/index.html` osadzany w Streamlicie. Lokalnie: `pip install -r requirements.txt && streamlit run streamlit_app.py`.
+Po zmianach w `app.js`, `index.html` lub `style.css` przebuduj osadzany plik:
+
+    npm i esbuild && node tools/build-artifact.mjs embed/index.html --standalone --inline-sample
+
 ## Użycie
 1. Wskaż razem `.obj`, `.mtl` i tekstury z eksportu Pix4D (lub przeciągnij na widok).
 2. Tryb „Rysuj obrys” → klikaj wierzchołki na modelu → „Zamknij obrys”.

@@ -345,9 +345,14 @@ async function copyCsv() {
 // Model przykładowy: ława z obrysem i siatką, żeby od razu było widać działanie.
 async function loadSample(withDesign = true) {
   try {
-    const res = await fetch('samples/lawa-testowa.obj');
-    if (!res.ok) throw new Error(res.status);
-    await loadFiles([new File([await res.blob()], 'lawa-testowa.obj')]);
+    let blob;
+    if (window.__SAMPLE_OBJ__) blob = new Blob([window.__SAMPLE_OBJ__]); // wersja osadzona (np. Streamlit)
+    else {
+      const res = await fetch('samples/lawa-testowa.obj');
+      if (!res.ok) throw new Error(res.status);
+      blob = await res.blob();
+    }
+    await loadFiles([new File([blob], 'lawa-testowa.obj')]);
   } catch (e) { return status('Nie udało się wczytać modelu przykładowego.'); }
   if (!withDesign) return;
   const { size } = state;
