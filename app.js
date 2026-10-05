@@ -59,8 +59,10 @@ const zShift = () => state.center.z + num('offZ'); // lokalne Z -> rzeczywista r
 // ---------- wczytywanie modelu ----------
 async function loadFiles(fileList) {
   const files = [...fileList];
+  const offFile = files.find((f) => /\.xyz$/i.test(f.name) && f.size < 4096);
+  if (offFile) await applyOffsetFile(offFile);
   const objFile = files.find((f) => /\.obj$/i.test(f.name));
-  if (!objFile) return status('Nie znaleziono pliku .obj wśród wybranych.');
+  if (!objFile) return offFile ? undefined : status('Nie znaleziono pliku .obj wśród wybranych.');
   status(`Wczytuję ${objFile.name} (${(objFile.size / 1048576).toFixed(1)} MB)…`);
   await new Promise((r) => setTimeout(r)); // pozwól odświeżyć komunikat
 
@@ -95,6 +97,7 @@ async function loadFiles(fileList) {
   const box = new THREE.Box3().setFromObject(obj);
   box.getCenter(state.center);
   box.getSize(state.size);
+  state.box = box.clone();
   obj.position.sub(state.center);
   world.add(obj);
   state.model = obj;
@@ -103,7 +106,10 @@ async function loadFiles(fileList) {
   state.height = buildHeightField(obj);
   state.markerSize = THREE.MathUtils.clamp(Math.max(state.size.x, state.size.y) / 250, 0.15, 3);
   resetDesign();
-  $('floor').value = (box.min.z + 0.1 * state.size.z).toFixed(1);
+  state.probe = null;
+  $('probeOut').textContent = 'Kliknij punkt na modelu, aby zobaczyć jego X, Y, Z.';
+  $('ctrlOut').textContent = '';
+  $('floor').value = (box.min.z + num('offZ') + 0.1 * state.size.z).toFixed(1);
   frameModel();
   update();
   status(`Model: ${tris.toLocaleString('pl')} trójkątów, ${state.size.x.toFixed(0)} × ${state.size.y.toFixed(0)} × ${state.size.z.toFixed(0)} m. Ustaw tryb „Rysuj obrys”.`);
@@ -204,6 +210,8 @@ function generate() {
 
 // Przelicza otwory (geometria + ładunek) z bieżących parametrów i odświeża widok.
 function update() {
+  updateExtent();
+  showProbe(false);
   const p = readParams();
   const src = [...state.grid, ...state.manual];
   state.skipped = 0;
@@ -248,6 +256,12 @@ function drawOverlay() {
     );
     plane.position.z = readParams().floorZ;
     overlay.add(plane);
+  }
+
+  if (state.probe) {
+    const mk = new THREE.Mesh(new THREE.SphereGeometry(ms * 1.1, 12, 10), new THREE.MeshBasicMaterial({ color: 0xff2bd6, depthTest: false }));
+    mk.position.set(state.probe.x, state.probe.y, state.probe.z);
+    mk.renderOrder = 7; overlay.add(mk);
   }
 
   const n = state.holes.length;
@@ -398,9 +412,48 @@ canvas.addEventListener('pointerup', (e) => {
     status(`Obrys: ${state.polygon.length} pkt. ${state.polygon.length >= 3 ? 'Kliknij „Zamknij obrys”.' : ''}`);
   } else if (state.mode === 'hole') {
     state.manual.push({ x: pt.x, y: pt.y, z: pt.z });
+  } else if (state.mode === 'probe') {
+    state.probe = { x: pt.x, y: pt.y, z: pt.z };
   }
   update();
 });
+
+// Offset z Pix4D (*_offset.xyz): trzy liczby X Y Z. Spąg jest podawany w rzędnych rzeczywistych, więc przesuwa się razem z offsetem Z.
+let prevOffZ = 0;
+function setOffset(x, y, z) {
+  $('offX').value = x; $('offY').value = y;
+  $('floor').value = (num('floor') + (z - prevOffZ)).toFixed(1);
+  $('offZ').value = z; prevOffZ = z;
+}
+
+async function applyOffsetFile(file) {
+  const nums = ((await file.text()).match(/[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?/g) ?? []).map((s) => parseFloat(s.replace(',', '.')));
+  if (nums.length < 3) return status('Plik offsetu powinien zawierać trzy liczby: X Y Z.');
+  setOffset(nums[0], nums[1], nums[2]);
+  document.querySelector('#panel details').open = true;
+  update();
+  status(`Wczytano offset z pliku ${file.name}: X ${fmt(nums[0], 3)}, Y ${fmt(nums[1], 3)}, Z ${fmt(nums[2], 3)}.`);
+}
+
+// ---------- kontrola współrzędnych ----------
+const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
+
+function updateExtent() {
+  if (!state.box) return;
+  const ox = num('offX'), oy = num('offY'), oz = num('offZ'), { min, max } = state.box;
+  $('extent').textContent = `Zasięg modelu — X: ${fmt(min.x + ox, 2)} … ${fmt(max.x + ox, 2)}, Y: ${fmt(min.y + oy, 2)} … ${fmt(max.y + oy, 2)}, Z: ${fmt(min.z + oz, 2)} … ${fmt(max.z + oz, 2)} m`;
+}
+
+function showProbe(announce = true) {
+  const out = $('probeOut'), cmp = $('ctrlOut');
+  if (!state.probe) return;
+  const [x, y, z] = realOf(state.probe);
+  out.textContent = `Punkt: X ${fmt(x, 3)}, Y ${fmt(y, 3)}, Z ${fmt(z, 3)} m`;
+  const cx = $('ctrlX').value, cy = $('ctrlY').value, cz = $('ctrlZ').value;
+  if (cx === '' || cy === '') { cmp.textContent = announce ? 'Wpisz X i Y punktu kontrolnego (Z opcjonalnie).' : ''; return; }
+  const dx = x - parseFloat(cx), dy = y - parseFloat(cy), dh = Math.hypot(dx, dy);
+  cmp.textContent = `Różnica ΔX ${fmt(dx, 3)}, ΔY ${fmt(dy, 3)}, w poziomie ${fmt(dh, 3)} m` + (cz === '' ? '' : `, ΔZ ${fmt(z - parseFloat(cz), 3)} m`);
+}
 
 function closePolygon() {
   if (state.polygon.length < 3) return status('Obrys wymaga co najmniej 3 punktów.');
@@ -421,6 +474,13 @@ $('generate').onclick = generate;
 $('clearHoles').onclick = () => { state.grid = []; state.manual = []; update(); };
 $('export').onclick = exportCsv;
 $('csvCopy').onclick = copyCsv;
+$('offsetFile').addEventListener('change', (e) => e.target.files[0] && applyOffsetFile(e.target.files[0]));
+$('offZ').addEventListener('input', () => { // ręczna zmiana Z offsetu też przesuwa poziom spągu
+  const z = num('offZ');
+  $('floor').value = (num('floor') + (z - prevOffZ)).toFixed(1);
+  prevOffZ = z;
+});
+$('ctrlCompare').onclick = () => showProbe(true);
 $('csvClose').onclick = () => { $('csvbox').hidden = true; };
 $('loadSample').onclick = () => loadSample();
 $('suggest').onclick = () => {

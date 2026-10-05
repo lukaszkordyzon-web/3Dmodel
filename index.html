@@ -17,19 +17,37 @@
     <section>
       <h2>1. Model terenu (Pix4D)</h2>
       <label class="file">
-        <input type="file" id="files" multiple accept=".obj,.mtl,.jpg,.jpeg,.png,.tif,.tiff">
+        <input type="file" id="files" multiple accept=".obj,.mtl,.xyz,.jpg,.jpeg,.png,.tif,.tiff">
         <span>Wybierz pliki lub przeciągnij na widok 3D</span>
       </label>
       <button id="loadSample" class="ghost">Wczytaj model przykładowy</button>
       <p class="hint">Wskaż razem: <code>.obj</code>, <code>.mtl</code> i wszystkie tekstury (jpg/png). Samo <code>.obj</code> też zadziała.</p>
       <details>
         <summary>Przesunięcie współrzędnych (offset Pix4D)</summary>
+        <label class="file"><input type="file" id="offsetFile" accept=".xyz,.txt"><span>Wczytaj plik offsetu (<code>*_offset.xyz</code>)</span></label>
         <div class="grid3">
           <label>X<input type="number" id="offX" value="0" step="any"></label>
           <label>Y<input type="number" id="offY" value="0" step="any"></label>
           <label>Z<input type="number" id="offZ" value="0" step="any"></label>
         </div>
-        <p class="hint">Dodawane do współrzędnych w tabeli i eksporcie CSV, jeśli model ma lokalny początek układu.</p>
+        <p class="hint">Pix4D zapisuje go w pliku <code>*_offset.xyz</code> (trzy liczby X Y Z). Dodawany do współrzędnych modelu w tabeli, kontroli i eksporcie CSV. Plik wskazany razem z OBJ wczytuje się sam.</p>
+      </details>
+    </section>
+
+    <section>
+      <h2>Kontrola współrzędnych</h2>
+      <p class="hint" id="extent">Zasięg modelu pojawi się po wczytaniu.</p>
+      <label class="check"><input type="radio" name="mode" value="probe"> Tryb „Sprawdź punkt” (kliknij na modelu)</label>
+      <p class="hint" id="probeOut">Kliknij punkt na modelu, aby zobaczyć jego X, Y, Z.</p>
+      <details>
+        <summary>Porównaj z punktem kontrolnym (pomiar geodezyjny)</summary>
+        <div class="grid3">
+          <label>X<input type="number" id="ctrlX" step="any"></label>
+          <label>Y<input type="number" id="ctrlY" step="any"></label>
+          <label>Z<input type="number" id="ctrlZ" step="any"></label>
+        </div>
+        <button id="ctrlCompare" class="ghost" style="width:100%;margin-top:8px">Porównaj z ostatnim punktem</button>
+        <p class="hint" id="ctrlOut"></p>
       </details>
     </section>
 
