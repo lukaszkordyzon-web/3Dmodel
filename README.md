@@ -17,13 +17,24 @@ Po zmianach w `app.js`, `index.html` lub `style.css` przebuduj osadzany plik:
     npm i esbuild && node tools/build-artifact.mjs embed/index.html --standalone --inline-sample
 
 ## Użycie
-1. Wskaż razem `.obj`, `.mtl` i tekstury z eksportu Pix4D (lub przeciągnij na widok).
-2. Tryb „Rysuj obrys” → klikaj wierzchołki na modelu → „Zamknij obrys”.
-3. Ustaw średnicę, B/S, poziom spągu, podwiert, przybitkę, nachylenie. Siatka przelicza się na bieżąco.
-4. Tryby „Dodaj/Usuń otwór” do ręcznych poprawek. „Eksport CSV” zapisuje kolar, spąg otworu, długość i ładunek.
+1. Wskaż razem `.obj`, `.mtl`, tekstury i `*_offset.xyz` z Pix4D (lub przeciągnij na widok).
+2. „Rysuj obrys” → klikaj wierzchołki na modelu → „Zamknij obrys”. Siatka generuje się sama.
+3. **Typy otworów** (zwykłe / profilowe): każdy ma średnicę, rzędną docelową wyrobiska (m n.p.m.), przewiert poniżej niej,
+   stałą przybitkę i nachylenie. Typ otworu zmienia tryb „Zmień typ otworu” (klik w otwór).
+4. **Szablon ładunku** dla typu: lista od góry do dołu (ładunek / przekładka), jeden element „reszta” rozciąga się na
+   głębokość otworu. Szablon stosuje się do wszystkich otworów danego typu. Produkty z bazy MW (sypkie i nabojowane).
+5. **Profil**: tryb „Profil” → klik w otwór (przekrój przez ten otwór, w kierunku jego nachylenia) albo dwa punkty na terenie.
+   Pokazuje teren, rzędne docelowe, otwory z ładunkiem i zabiór (pole przekroju nad rzędną docelową).
+6. **Zapis projektu** (JSON) i **eksport planu wierceń** w formacie IREDES XML (kolejność osi N, E, H, układ PL-2000).
+   CSV z opisem ładunku.
 
-Liczone: długość otworu (z podwiertem i nachyleniem), przybitka, długość i masa ładunku (z gęstości MW i średnicy),
-metraż, objętość urabiana (B×S×H), jednostkowe zużycie MW i wiercenie jednostkowe.
+W trybie „Sprawdź punkt” można odczytać X, Y, Z z modelu i porównać z punktem kontrolnym.
+
+## Format planu wierceń (IREDES)
+`iredes.js` odtwarza strukturę planu generowanego przez Strayos: nagłówki, `DrillPosPlan`, `Hole` (`StartPoint`, `EndPoint`,
+`TypeOfHole`, `DrillBitDia`). Pole `WorkOrder` to środek ciężkości wlotów w długości i szerokości geograficznej
+(przeliczenie PL-2000 w `geo.js`, zweryfikowane na planie ze Strayos). Algorytmu `ChkSum` nie znamy: liczymy CRC32, więc
+sprawdź, czy odbiorca akceptuje plik.
 
 ## Uwagi
 - Zakładamy układ Z w górę, metry (domyślny eksport Pix4D). Duże współrzędne bezwzględne (np. UTM) trzeba wyeksportować
@@ -31,4 +42,4 @@ metraż, objętość urabiana (B×S×H), jednostkowe zużycie MW i wiercenie jed
 - Wartości „orientacyjne wg średnicy” to reguły kciuka; projekt musi zatwierdzić uprawniona osoba.
 
 ## Testy
-    node test-blast.mjs
+    node test-blast.mjs && node test-modules.mjs

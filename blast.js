@@ -100,3 +100,49 @@ export function summarize(holes, areaM2) {
     areaM2,
   };
 }
+
+// Ładowanie otworu wg szablonu. template: lista od góry do dołu (po przybitce):
+//   { kind: 'charge', productId, length, flex? } albo { kind: 'deck', length } (przekładka / przesypka).
+// Przybitka (od wlotu) jest stała. Element z flex dostaje całą resztę długości otworu.
+// products: [{ id, kind: 'bulk'|'cartridge', density, cartLen(mm), cartMass(kg), cartDia(mm) }]
+// Zwraca segmenty (od wlotu) z masami; mass w kg.
+export function loadHole(length, template, { stemming, diameterMm, products }) {
+  const warnings = [];
+  const stem = Math.min(stemming, length);
+  const segments = [{ kind: 'stemming', from: 0, to: stem }];
+  const fixed = template.reduce((s, t) => s + (t.flex ? 0 : Math.max(0, t.length || 0)), 0);
+  const flexLen = Math.max(0, length - stem - fixed);
+  if (fixed > length - stem + 1e-9) warnings.push('Ładunek i przekładki nie mieszczą się w otworze, dolne elementy obcięto.');
+  const byProduct = {};
+  let pos = stem, mass = 0, chargeLength = 0;
+  for (const t of template) {
+    const want = t.flex ? flexLen : Math.max(0, t.length || 0);
+    const len = Math.min(want, length - pos);
+    if (len <= 1e-9) continue;
+    if (t.kind === 'deck') {
+      segments.push({ kind: 'deck', from: pos, to: pos + len });
+      pos += len;
+      continue;
+    }
+    const p = products.find((x) => x.id === t.productId);
+    if (!p) { warnings.push('Brak produktu w bazie MW.'); segments.push({ kind: 'empty', from: pos, to: pos + len }); pos += len; continue; }
+    let eff = len, m;
+    if (p.kind === 'cartridge') {
+      const cl = p.cartLen / 1000;
+      const n = Math.floor(len / cl + 1e-9);
+      eff = n * cl;
+      m = n * p.cartMass;
+      if (p.cartDia > diameterMm) warnings.push(`Nabój ${p.name} (Ø${p.cartDia}) jest szerszy niż otwór (Ø${diameterMm}).`);
+      if (n === 0) warnings.push(`Długość ${len.toFixed(2)} m jest krótsza niż jeden nabój ${p.name}.`);
+      segments.push({ kind: 'charge', productId: p.id, from: pos, to: pos + eff, mass: m, count: n });
+      if (len - eff > 1e-6) segments.push({ kind: 'empty', from: pos + eff, to: pos + len });
+    } else {
+      m = linearLoad(p.density, diameterMm) * len;
+      segments.push({ kind: 'charge', productId: p.id, from: pos, to: pos + len, mass: m });
+    }
+    mass += m; chargeLength += eff;
+    byProduct[p.id] = (byProduct[p.id] ?? 0) + m;
+    pos += len;
+  }
+  return { segments, mass, chargeLength, stemming: stem, byProduct, warnings };
+}

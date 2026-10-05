@@ -52,25 +52,28 @@
     </section>
 
     <section>
-      <h2>2. Obrys strzału</h2>
+      <h2>2. Obrys i tryby pracy</h2>
       <div class="modes" id="modes">
         <label><input type="radio" name="mode" value="orbit" checked> Widok</label>
         <label><input type="radio" name="mode" value="poly"> Rysuj obrys</label>
         <label><input type="radio" name="mode" value="hole"> Dodaj otwór</label>
         <label><input type="radio" name="mode" value="del"> Usuń otwór</label>
+        <label><input type="radio" name="mode" value="type"> Zmień typ otworu</label>
+        <label><input type="radio" name="mode" value="prof"> Profil</label>
       </div>
+      <label>Typ nowych otworów
+        <select id="newType"><option value="normal">Zwykły</option><option value="profile">Profilowy</option></select>
+      </label>
       <div class="row">
         <button id="closePoly">Zamknij obrys</button>
         <button id="clearPoly" class="ghost">Wyczyść obrys</button>
       </div>
-      <p class="hint">W trybie „Rysuj obrys” klikaj kolejne wierzchołki na modelu, potem „Zamknij obrys”.</p>
+      <p class="hint">„Rysuj obrys”: klikaj wierzchołki na modelu, potem „Zamknij obrys”. „Zmień typ”: kliknij otwór, aby przełączyć zwykły/profilowy. „Profil”: kliknij otwór (przekrój przez ten otwór) albo dwa punkty na terenie (własna linia).</p>
     </section>
 
     <section>
       <h2>3. Siatka</h2>
       <div class="grid2">
-        <label>Średnica otworu [mm]<input type="number" id="diameter" value="115" min="30" step="1"></label>
-        <label>Gęstość MW [g/cm³]<input type="number" id="density" value="0.85" min="0.5" step="0.01"></label>
         <label>Odstęp rzędów (burden) [m]<input type="number" id="burden" value="3.5" min="0.5" step="0.1" data-regen></label>
         <label>Odstęp w rzędzie [m]<input type="number" id="spacing" value="4" min="0.5" step="0.1" data-regen></label>
         <label>Kierunek rzędów [°]<input type="number" id="rowAz" value="0" step="1" data-regen></label>
@@ -85,31 +88,88 @@
     </section>
 
     <section>
-      <h2>4. Otwór i ładunek</h2>
-      <div class="grid2">
-        <label>Poziom spągu [m n.p.m.]<input type="number" id="floor" value="0" step="0.1"></label>
-        <label>Podwiert [m]<input type="number" id="subdrill" value="1.1" min="0" step="0.1"></label>
-        <label>Przybitka / orczyk [m]<input type="number" id="stemming" value="2.4" min="0" step="0.1"></label>
-        <label>Nachylenie od pionu [°]<input type="number" id="incl" value="0" min="0" max="45" step="1"></label>
-        <label>Azymut nachylenia [°]<input type="number" id="inclAz" value="0" step="1"></label>
+      <h2>4. Typ otworu: parametry</h2>
+      <div class="tabs" id="typeTabs">
+        <button type="button" data-type="normal" class="on">Zwykłe</button>
+        <button type="button" data-type="profile">Profilowe</button>
       </div>
-      <label class="check"><input type="checkbox" id="showFloor" checked> Pokaż płaszczyznę spągu</label>
+      <div class="grid2">
+        <label>Średnica otworu [mm]<input type="number" id="diameter" data-type value="95" min="30" step="1"></label>
+        <label>Rzędna docelowa wyrobiska [m n.p.m.]<input type="number" id="target" data-type value="0" step="0.1"></label>
+        <label>Przewiert poniżej rzędnej [m]<input type="number" id="subdrill" data-type value="1.1" min="0" step="0.1"></label>
+        <label>Przybitka (stała) [m]<input type="number" id="stemming" data-type value="2.4" min="0" step="0.1"></label>
+        <label>Nachylenie od pionu [°]<input type="number" id="incl" data-type value="0" min="0" max="45" step="1"></label>
+        <label>Azymut nachylenia [°]<input type="number" id="inclAz" data-type value="0" step="1"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="showFloor" checked> Pokaż płaszczyznę rzędnej docelowej</label>
+    </section>
+
+    <section>
+      <h2>5. Ładunek otworu (szablon dla typu)</h2>
+      <p class="hint">Przybitka jest stała (od wlotu). Elementy poniżej idą od góry do dołu. Zaznaczony „reszta” wypełnia pozostałą długość, więc szablon pasuje do otworów o różnej głębokości.</p>
+      <div id="tplRows"></div>
+      <div class="row">
+        <button id="addCharge" class="ghost">+ Ładunek</button>
+        <button id="addDeck" class="ghost">+ Przekładka</button>
+      </div>
+      <button id="copyTpl" class="ghost" style="width:100%;margin-top:8px">Zastosuj ten szablon do drugiego typu</button>
+      <p class="hint" id="tplInfo"></p>
+      <details>
+        <summary>Baza materiałów wybuchowych</summary>
+        <div id="dbRows"></div>
+        <div class="row">
+          <button id="dbAdd" class="ghost">Dodaj produkt</button>
+          <button id="dbReset" class="ghost">Przywróć przykładowe</button>
+        </div>
+        <p class="hint">Produkty przykładowe: wartości orientacyjne. Wpisz parametry z kart technicznych swoich produktów. Sypkie liczone z gęstości i średnicy otworu, nabojowane z liczby naboi.</p>
+      </details>
     </section>
 
     <section>
       <h2>Podsumowanie</h2>
       <dl id="stats"></dl>
-      <button id="export" class="primary">Eksport CSV</button>
-      <div id="csvbox" hidden>
-        <textarea id="csvText" readonly rows="6" spellcheck="false"></textarea>
-        <div class="row"><button id="csvCopy">Kopiuj</button><button id="csvClose" class="ghost">Zamknij</button></div>
+      <div class="row">
+        <button id="export" class="ghost">Eksport CSV</button>
+        <button id="exportXml" class="primary">Plan wierceń (XML)</button>
       </div>
+      <details>
+        <summary>Ustawienia eksportu planu (IREDES XML)</summary>
+        <div class="grid2">
+          <label>Nazwa planu<input type="text" id="xmlName" value="Plan 1"></label>
+          <label>Projekt<input type="text" id="xmlProject" value=""></label>
+          <label>Układ współrzędnych<input type="text" id="xmlCrs" value="ETRF2000-PL / CS2000/21"></label>
+          <label>Komentarz<input type="text" id="xmlComment" value=""></label>
+          <label>TypeOfHole: zwykłe<input type="text" id="xmlTypeNormal" value="Undefined"></label>
+          <label>TypeOfHole: profilowe<input type="text" id="xmlTypeProfile" value="Undefined"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="xmlChk" checked> Dołącz sumę kontrolną (ChkSum)</label>
+        <p class="hint">Współrzędne w kolejności N, E, H (PointX = północ, PointY = wschód). Suma kontrolna liczona jako CRC32, nie wiadomo, czy odbiorca ją sprawdza.</p>
+      </details>
+      <div id="databox" hidden>
+        <p class="hint" id="dataTitle"></p>
+        <textarea id="dataText" rows="7" spellcheck="false"></textarea>
+        <div class="row">
+          <button id="dataCopy">Kopiuj</button>
+          <button id="dataLoad" class="ghost" hidden>Wczytaj z tekstu</button>
+          <button id="dataClose" class="ghost">Zamknij</button>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Projekt</h2>
+      <div class="row">
+        <button id="saveProject" class="ghost">Zapisz projekt</button>
+        <button id="pasteProject" class="ghost">Wklej projekt</button>
+      </div>
+      <label class="file"><input type="file" id="projectFile" accept=".json,application/json"><span>Wczytaj plik projektu (<code>.json</code>)</span></label>
+      <p class="hint">Projekt zawiera obrys, otwory, typy, szablony ładunku i bazę MW. Model OBJ wczytaj ten sam co przy zapisie.</p>
     </section>
 
     <section>
       <h2>Otwory</h2>
       <div class="tablewrap"><table id="holes"><thead>
-        <tr><th>Nr</th><th>X</th><th>Y</th><th>Z</th><th>L [m]</th><th>kg</th></tr>
+        <tr><th>Nr</th><th>Typ</th><th>E (X)</th><th>N (Y)</th><th>Z</th><th>L [m]</th><th>kg</th></tr>
       </thead><tbody></tbody></table></div>
     </section>
 
@@ -118,6 +178,17 @@
 
   <main id="view">
     <canvas id="canvas"></canvas>
+    <div id="profile" hidden>
+      <div class="phead">
+        <strong>Profil</strong>
+        <select id="profHole" aria-label="Otwór profilowy"></select>
+        <label>Pół długości [m]<input type="number" id="profHalf" value="12" min="2" step="1"></label>
+        <label>Pasmo ± [m]<input type="number" id="profBand" value="1" min="0.2" step="0.2"></label>
+        <button id="profClose" class="ghost">Zamknij</button>
+      </div>
+      <canvas id="profCanvas"></canvas>
+      <div id="profInfo" class="hint"></div>
+    </div>
     <div id="status">Wczytaj model OBJ, aby zacząć.</div>
     <div id="drop">Upuść pliki tutaj</div>
   </main>
