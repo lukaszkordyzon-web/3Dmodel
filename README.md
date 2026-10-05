@@ -36,6 +36,12 @@ W trybie „Sprawdź punkt” można odczytać X, Y, Z z modelu i porównać z p
 (przeliczenie PL-2000 w `geo.js`, zweryfikowane na planie ze Strayos). Algorytmu `ChkSum` nie znamy: liczymy CRC32, więc
 sprawdź, czy odbiorca akceptuje plik.
 
+## Baza danych (szkic)
+`db/schema.sql` to szkic schematu PostgreSQL. Kluczem jest ID planu z pliku IREDES (`IR:PlanId`) i numer otworu (`IR:HoleId`):
+do nich przypisane są wiercenie, MWD, ładowanie, sieć strzałowa i wyniki (drgania, fragmentacja). W aplikacji `PlanId` jest
+stały dla projektu (zapisuje się w pliku projektu), a `HoleId` jest nadawany raz i nie jest przenumerowywany po usunięciu
+otworu; `HoleName` (np. `2.11`) to osobna, kolejna numeracja.
+
 ## Uwagi
 - Zakładamy układ Z w górę, metry (domyślny eksport Pix4D). Duże współrzędne bezwzględne (np. UTM) trzeba wyeksportować
   z offsetem i wpisać go w „Przesunięcie współrzędnych”, bo OBJ jest wczytywany w float32.

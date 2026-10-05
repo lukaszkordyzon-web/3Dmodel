@@ -4,7 +4,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
 import * as blast from './blast.js';
 import { DEFAULT_PRODUCTS, newProductId } from './products.js';
-import { buildIredesXml } from './iredes.js';
+import { buildIredesXml, newPlanId } from './iredes.js';
 import { pl2000ToLonLat } from './geo.js';
 import { buildProfile, drawProfile } from './profile.js';
 
@@ -75,6 +75,8 @@ const state = {
   products: loadProducts(),
   profile: null,                // { mode: 'hole', ref } albo { mode: 'line', origin, az }
   profA: null,
+  planId: newPlanId(),          // stały identyfikator planu: klucz do danych z wiercenia, ładowania i MWD
+  nextHid: 1,                   // licznik trwałych numerów otworów (HoleId), nigdy nie przenumerowywany
 };
 
 function resize() {
@@ -224,6 +226,8 @@ function sampleZ(x, y) {
 function resetDesign() {
   state.polygon = []; state.closed = false; state.grid = []; state.manual = [];
   state.profile = null; state.profA = null;
+  state.planId = newPlanId(); state.nextHid = 1;
+  $('xmlPlanId').value = state.planId;
 }
 
 const readPattern = () => ({
@@ -235,7 +239,7 @@ function generate() {
   const p = readPattern();
   state.grid = blast.generateGrid(state.polygon, {
     burden: p.burden, spacing: p.spacing, rowAzimuthDeg: p.rowAz, stagger: p.stagger, edgeOffset: p.edge,
-  }).flatMap((g) => { const z = sampleZ(g.x, g.y); return z === null ? [] : [{ x: g.x, y: g.y, z, row: g.row, u: g.u, type: 'normal' }]; });
+  }).flatMap((g) => { const z = sampleZ(g.x, g.y); return z === null ? [] : [{ x: g.x, y: g.y, z, row: g.row, u: g.u, type: 'normal', hid: state.nextHid++ }]; });
   update();
 }
 
@@ -253,10 +257,12 @@ function update() {
     const g = blast.holeGeometry({ x: s.x, y: s.y, collarZ: s.z }, { floorZ: tp.targetZ - zs, subdrill: tp.subdrill, inclDeg: tp.incl, azimuthDeg: tp.inclAz });
     if (g.benchHeight < 0.3) { state.skipped++; continue; }
     const c = blast.loadHole(g.length, tp.template, { stemming: tp.stemming, diameterMm: tp.diameter, products: state.products });
-    const id = state.holes.length + 1;
+    s.hid ??= state.nextHid++; // zabezpieczenie dla projektów bez numerów
+    const id = s.hid;
+    const seq = state.holes.length + 1;
     const manual = state.manual.includes(s);
     state.holes.push({
-      ref: s, id, name: `${manual ? 0 : s.row + 1}.${id}`, type, manual,
+      ref: s, id, name: `${manual ? 0 : s.row + 1}.${seq}`, type, manual,
       x: s.x, y: s.y, z: s.z, ...g, ...c, diameter: tp.diameter, targetZ: tp.targetZ, subdrill: tp.subdrill,
       volume: pat.burden * pat.spacing * g.benchHeight,
     });
@@ -532,7 +538,7 @@ async function copyData() {
 
 function exportCsv() {
   if (!state.holes.length) return status('Brak otworów do eksportu.');
-  const head = ['Nr', 'Nazwa', 'Typ', 'E_collar', 'N_collar', 'Z_collar', 'E_toe', 'N_toe', 'Z_toe', 'Dlugosc_m', 'Srednica_mm', 'Rzedna_docelowa', 'Przewiert_m', 'Nachylenie_deg', 'Azymut_deg', 'Przybitka_m', 'Dlugosc_ladunku_m', 'MW_kg', 'Ladunek_opis', 'Zrodlo'];
+  const head = ['PlanId', 'HoleId', 'Nazwa', 'Typ', 'E_collar', 'N_collar', 'Z_collar', 'E_toe', 'N_toe', 'Z_toe', 'Dlugosc_m', 'Srednica_mm', 'Rzedna_docelowa', 'Przewiert_m', 'Nachylenie_deg', 'Azymut_deg', 'Przybitka_m', 'Dlugosc_ladunku_m', 'MW_kg', 'Ladunek_opis', 'Zrodlo'];
   const ox = state.center.x + num('offX'), oy = state.center.y + num('offY');
   const lines = [head.join(',')];
   for (const h of state.holes) {
@@ -544,7 +550,7 @@ function exportCsv() {
       if (s.kind === 'deck') return `przekladka ${len} m`;
       return `${state.products.find((p) => p.id === s.productId)?.name ?? s.productId} ${len} m ${fmt(s.mass, 1).replace(',', '.')} kg`;
     }).join('; ').replaceAll(',', ' ');
-    lines.push([h.id, h.name, h.type === 'profile' ? 'profilowy' : 'zwykly', x, y, z, h.toe.x + ox, h.toe.y + oy, h.toe.z + zShift(), h.length, h.diameter, h.targetZ, h.subdrill, tp.incl, tp.inclAz, h.stemming, h.chargeLength, h.mass, desc, h.manual ? 'reczny' : 'siatka']
+    lines.push([state.planId, h.id, h.name, h.type === 'profile' ? 'profilowy' : 'zwykly', x, y, z, h.toe.x + ox, h.toe.y + oy, h.toe.z + zShift(), h.length, h.diameter, h.targetZ, h.subdrill, tp.incl, tp.inclAz, h.stemming, h.chargeLength, h.mass, desc, h.manual ? 'reczny' : 'siatka']
       .map((v) => (typeof v === 'number' ? +v.toFixed(3) : v)).join(','));
   }
   showData('Eksport CSV (E = X, N = Y, układ jak w modelu z offsetem)', lines.join('\n'), { filename: 'otwory_strzalowe.csv', mime: 'text/csv' });
@@ -566,12 +572,12 @@ function exportXml() {
   const ll = pl2000ToLonLat(n, e);
   const rowAz = num('rowAz') % 360;
   const xml = buildIredesXml({
-    planName: $('xmlName').value || 'Plan', project: $('xmlProject').value, comment: $('xmlComment').value,
+    planId: state.planId, planName: $('xmlName').value || 'Plan', project: $('xmlProject').value, comment: $('xmlComment').value,
     coordSystem: $('xmlCrs').value, bearing: rowAz > 180 ? rowAz - 360 : rowAz,
     workOrder: ll ? { ...ll, alt } : null, holes, checksum: $('xmlChk').checked,
   });
   const fname = ($('xmlName').value || 'plan').replace(/[^\w.-]+/g, '_') + '_iredes.xml';
-  showData(`Plan wierceń IREDES (${holes.length} otworów, kolejność N, E, H)`, xml, { filename: fname, mime: 'application/xml' });
+  showData(`Plan wierceń IREDES, PlanId ${state.planId} (${holes.length} otworów, kolejność N, E, H)`, xml, { filename: fname, mime: 'application/xml' });
   status(ll ? 'Plan XML gotowy: pobrano plik albo skopiuj tekst poniżej.' : 'Plan XML gotowy. Współrzędne poza PL-2000: pole WorkOrder zostało puste.');
 }
 
@@ -582,7 +588,7 @@ const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
   return JSON.stringify({
-    app: 'projekt-wiercen', version: 1, savedAt: new Date().toISOString(),
+    app: 'projekt-wiercen', version: 1, savedAt: new Date().toISOString(), planId: state.planId, nextHid: state.nextHid,
     offset: { x: num('offX'), y: num('offY'), z: num('offZ') },
     modelCenter: realOf({ x: 0, y: 0, z: 0 }),
     pattern: readPattern(), types: state.types, editType: state.editType, products: state.products,
@@ -608,6 +614,9 @@ function loadProjectFromText(text) {
   state.grid = (d.grid ?? []).map(localOf);
   state.manual = (d.manual ?? []).map(localOf);
   state.profile = null; state.profA = null;
+  state.planId = d.planId || newPlanId();
+  state.nextHid = Math.max(d.nextHid ?? 1, 1 + Math.max(0, ...[...state.grid, ...state.manual].map((s) => s.hid ?? 0)));
+  $('xmlPlanId').value = state.planId;
   const [cx, cy, cz] = d.modelCenter ?? [];
   const here = realOf({ x: 0, y: 0, z: 0 });
   const dist = Math.hypot(here[0] - cx, here[1] - cy, here[2] - cz);
@@ -699,7 +708,7 @@ canvas.addEventListener('pointerup', (e) => {
     state.polygon.push({ x: pt.x, y: pt.y, z: pt.z });
     status(`Obrys: ${state.polygon.length} pkt. ${state.polygon.length >= 3 ? 'Kliknij „Zamknij obrys”.' : ''}`);
   } else if (state.mode === 'hole') {
-    state.manual.push({ x: pt.x, y: pt.y, z: pt.z, type: $('newType').value });
+    state.manual.push({ x: pt.x, y: pt.y, z: pt.z, type: $('newType').value, hid: state.nextHid++ });
   } else if (state.mode === 'probe') {
     state.probe = { x: pt.x, y: pt.y, z: pt.z };
   } else if (state.mode === 'prof') {
@@ -822,6 +831,8 @@ $('offZ').addEventListener('input', () => { // ręczna zmiana Z offsetu przesuwa
   shiftTargets(z - prevOffZ);
   prevOffZ = z;
 });
+$('xmlPlanId').addEventListener('input', () => { state.planId = $('xmlPlanId').value.trim() || state.planId; });
+$('xmlNewPlan').onclick = () => { state.planId = newPlanId(); $('xmlPlanId').value = state.planId; status(`Nowy ID planu: ${state.planId}. Dane powiązane ze starym ID zostają przy starym planie.`); };
 $('ctrlCompare').onclick = () => showProbe(true);
 $('loadSample').onclick = () => loadSample();
 $('addCharge').onclick = () => { state.types[state.editType].template.push({ kind: 'charge', productId: state.products[0]?.id ?? '', length: 1 }); renderTemplate(); update(); };
@@ -867,6 +878,7 @@ view.addEventListener('drop', (e) => { e.preventDefault(); view.classList.remove
 typeToInputs();
 renderDb();
 renderStats();
+$('xmlPlanId').value = state.planId;
 loadSample();
 
 // pomocnik do testów: położenie otworu na ekranie (piksele względem okna)
