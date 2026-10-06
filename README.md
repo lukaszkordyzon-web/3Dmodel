@@ -24,7 +24,8 @@ Po zmianach w `app.js`, `index.html` lub `style.css` przebuduj osadzany plik:
 4. **Długość otworu**: do rzędnej dna (rzędna docelowa − przewiert, dno zawsze na tej samej rzędnej) albo stała długość.
    **Szablon ładunku** dla typu (przybitka stała od wlotu, potem lista od góry do dołu):
    - ładunek: „reszta” (wypełnia wolne miejsce, masa MW się dolicza), zadana długość albo zadana masa (kg);
-   - przesypka: zadana długość i położenie (po kolei, na głębokości od wlotu albo na rzędnej), ewentualnie „reszta”,
+   - przesypka (materiał obojętny) albo **air deck** (pusty odcinek, opcjonalnie z wkładką otworową na górze odcinka,
+     wkładki są zliczane): zadana długość i położenie (po kolei, na głębokości od wlotu albo na rzędnej), ewentualnie „reszta”,
      która dopasowuje się do zadanej masy MW. Ładunek tuż nad przesypką o ustalonym położeniu liczy się sam.
    Szablon stosuje się do wszystkich otworów danego typu. Produkty z bazy MW (sypkie i nabojowane).
 5. **Profil**: tryb „Profil” → klik w otwór (przekrój przez ten otwór, w kierunku jego nachylenia) albo dwa punkty na terenie.

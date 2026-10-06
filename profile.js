@@ -102,8 +102,8 @@ export function drawProfile(canvas, data, { zOffset = 0, colors = {} } = {}) {
 
   for (const h of data.holes) {
     for (const sg of h.segs) {
-      g.lineWidth = sg.kind === 'charge' ? 5 : sg.kind === 'deck' ? 3 : 2;
-      g.strokeStyle = sg.kind === 'charge' ? colors[sg.productId] ?? '#ff6b3d' : sg.kind === 'deck' ? '#a1887f' : sg.kind === 'empty' ? '#475569' : '#9aa4b0';
+      g.lineWidth = sg.kind === 'charge' ? 5 : sg.kind === 'plug' ? 6 : sg.kind === 'deck' || sg.kind === 'air' ? 3 : 2;
+      g.strokeStyle = sg.kind === 'charge' ? colors[sg.productId] ?? '#ff6b3d' : sg.kind === 'deck' ? '#a1887f' : sg.kind === 'air' ? '#7dd3fc' : sg.kind === 'plug' ? '#ffffff' : sg.kind === 'empty' ? '#475569' : '#9aa4b0';
       g.beginPath(); g.moveTo(X(sg.a.s), Y(sg.a.z)); g.lineTo(X(sg.b.s), Y(sg.b.z)); g.stroke();
     }
     g.fillStyle = h.type === 'profile' ? '#7bd88f' : '#2ec4f1';

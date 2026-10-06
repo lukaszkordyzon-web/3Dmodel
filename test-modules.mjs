@@ -71,6 +71,27 @@ assert.ok(r.warnings.length > 0); near(r.chargeLength, 3);
 r = b.loadHole(10, [{ kind: 'charge', productId: 'anfo', by: 'length', length: 3 }], { stemming: 2, diameterMm: 95, products: P });
 assert.ok(r.warnings.some((w) => /Niewypełniony/.test(w))); near(r.segments.at(-1).to - r.segments.at(-1).from, 5);
 
+// --- air deck i wkładka otworowa ---
+r = b.loadHole(12, [
+  { kind: 'charge', productId: 'emu-bulk', by: 'length', length: 3 },
+  { kind: 'deck', material: 'air', plug: true, plugLen: 0.3, by: 'rest' },
+  { kind: 'charge', productId: 'emu-bulk', by: 'mass', mass: 17.01 },
+], { stemming: 2, diameterMm: 95, products: P });
+assert.equal(r.segments.map((s) => s.kind).join(), 'stemming,charge,plug,air,charge');
+assert.equal(r.plugs, 1); near(r.segments[2].to - r.segments[2].from, 0.3);
+near(r.airLength, 10 - 3 - 17.01 / emu - 0.3, 1e-6);
+near(r.mass, emu * 3 + 17.01, 1e-6);                      // air deck i wkładka nie dodają masy MW
+// air deck zakotwiczony na rzędnej, bez wkładki
+r = b.loadHole(10, [{ kind: 'charge', productId: 'anfo', by: 'rest' }, { kind: 'deck', material: 'air', by: 'length', length: 1.5, anchor: 'depth', at: 5 }, { kind: 'charge', productId: 'anfo', by: 'rest' }],
+  { stemming: 2, diameterMm: 95, products: P });
+assert.equal(r.plugs, 0); near(r.airLength, 1.5); assert.equal(r.segments.map((s) => s.kind).join(), 'stemming,charge,air,charge');
+// wkładka dłuższa niż odcinek: cały odcinek to wkładka
+r = b.loadHole(8, [{ kind: 'charge', productId: 'anfo', by: 'length', length: 2 }, { kind: 'deck', material: 'air', plug: true, plugLen: 1, by: 'length', length: 0.4 }, { kind: 'charge', productId: 'anfo', by: 'rest' }], { stemming: 2, diameterMm: 95, products: P });
+assert.equal(r.plugs, 1); assert.equal(r.airLength, 0);
+// przesypka (materiał obojętny) nie zlicza wkładek
+r = b.loadHole(8, [{ kind: 'charge', productId: 'anfo', by: 'rest' }, { kind: 'deck', plug: true, by: 'length', length: 1 }], { stemming: 2, diameterMm: 95, products: P });
+assert.equal(r.plugs, 0); assert.ok(r.segments.some((s) => s.kind === 'deck'));
+
 // --- długość otworu: do rzędnej dna albo stała ---
 const g1 = b.holeGeometry({ x: 0, y: 0, collarZ: 110 }, { floorZ: 100, subdrill: 1 });
 const g2 = b.holeGeometry({ x: 0, y: 0, collarZ: 105 }, { floorZ: 100, subdrill: 1 });

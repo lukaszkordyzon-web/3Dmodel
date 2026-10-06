@@ -331,7 +331,8 @@ function renderTemplate() {
     const row = el('div', 'tplrow'), head = el('div', 'tplhead'), body = el('div', 'tplbody');
     const isDeck = seg.kind === 'deck';
     const anchored = isDeck && (seg.anchor === 'depth' || seg.anchor === 'elev');
-    head.append(el('span', 'k', isDeck ? 'Przesypka' : 'Ładunek'));
+    if (isDeck) head.append(select([['filler', 'Przesypka'], ['air', 'Air deck']], seg.material === 'air' ? 'air' : 'filler', (v) => { seg.material = v; if (v !== 'air') delete seg.plug; redo(); }, 'Rodzaj: przesypka (materiał obojętny) albo air deck (pusty odcinek powietrzny)'));
+    else head.append(el('span', 'k', 'Ładunek'));
     if (!isDeck) head.append(select(state.products.map((p) => [p.id, p.name.replace(/ \(przykład\)/, '')]), seg.productId, (v) => { seg.productId = v; update(); }, 'Produkt z bazy MW'));
     const modes = isDeck
       ? [['length', 'długość'], ['rest', 'reszta']].filter((m) => !(anchored && m[0] === 'rest'))
@@ -352,6 +353,14 @@ function renderTemplate() {
         redo();
       }, 'Położenie przesypki: po poprzednim elemencie, na głębokości od wlotu albo na zadanej rzędnej'));
       if (anchored) body.append(field(seg.at, '0.1', seg.anchor === 'depth' ? 'Głębokość od wlotu [m]' : 'Rzędna [m n.p.m.]', (v) => { seg.at = v; }), el('span', 'k', seg.anchor === 'depth' ? 'm' : 'm n.p.m.'));
+    }
+    if (isDeck && seg.material === 'air') {
+      const lab = el('label', 'flex'), cb = el('input');
+      cb.type = 'checkbox'; cb.checked = !!seg.plug; cb.title = 'Wkładka otworowa podtrzymuje materiał nad odcinkiem powietrznym';
+      cb.onchange = () => { seg.plug = cb.checked; seg.plugLen ??= 0.3; redo(); };
+      lab.append(cb, document.createTextNode('wkładka otworowa'));
+      body.append(lab);
+      if (seg.plug) body.append(field(seg.plugLen ?? 0.3, '0.05', 'Długość wkładki [m]', (v) => { seg.plugLen = v; }), el('span', 'k', 'm'));
     }
     const tools = el('span', 'tools');
     for (const [txt, fn, ttl] of [['▲', () => move(i, -1), 'W górę'], ['▼', () => move(i, 1), 'W dół'], ['✕', () => { t.template.splice(i, 1); redo(); }, 'Usuń']]) {
@@ -378,7 +387,7 @@ function renderTplInfo() {
   const t = state.types[state.editType];
   const { L, collarZ, cosI, avg } = typicalHole(state.editType), zs = zShift();
   const r = blast.loadHole(L, t.template, { stemming: t.stemming, diameterMm: t.diameter, products: state.products, depthAtElevation: (elev) => (collarZ - (elev - zs)) / cosI });
-  const name = { stemming: 'przybitka', deck: 'przesypka', charge: 'MW', empty: 'puste' };
+  const name = { stemming: 'przybitka', deck: 'przesypka', air: 'air deck', plug: 'wkładka otworowa', charge: 'MW', empty: 'puste' };
   const lines = r.segments.filter((s) => s.to - s.from > 1e-6).map((s) => {
     const label = s.kind === 'charge' ? state.products.find((p) => p.id === s.productId)?.name.replace(/ \(przykład\)/, '') ?? 'MW' : name[s.kind];
     return `${fmt(s.from, 2)}–${fmt(s.to, 2)} m  ${label}${s.mass ? `: ${fmt(s.mass, 1)} kg` : ''}`;
@@ -503,7 +512,7 @@ function drawOverlay() {
   const n = state.holes.length;
   if (!n) return;
   const pc = Object.fromEntries(state.products.map((p) => [p.id, new THREE.Color(p.color ?? '#ff6b3d')]));
-  const kindColor = { stemming: new THREE.Color(0xd9d9d9), deck: new THREE.Color(0xa1887f), empty: new THREE.Color(0x475569) };
+  const kindColor = { stemming: new THREE.Color(0xd9d9d9), deck: new THREE.Color(0xa1887f), air: new THREE.Color(0x7dd3fc), plug: new THREE.Color(0xffffff), empty: new THREE.Color(0x475569) };
   const pos = [], col = [];
   for (const h of state.holes) {
     for (const sg of h.segments) {
@@ -539,6 +548,8 @@ function renderStats() {
     ['Metraż wiercenia', `${fmt(s.totalLength)} m`],
     ['Łączny ładunek MW', `${fmt(s.totalMass, 0)} kg`],
     ...Object.entries(kg).map(([id, m]) => [`  ${state.products.find((p) => p.id === id)?.name ?? id}`, `${fmt(m, 0)} kg`]),
+    ...(state.holes.some((h) => h.plugs) ? [['Wkładki otworowe', `${state.holes.reduce((s, h) => s + h.plugs, 0)} szt.`]] : []),
+    ...(state.holes.some((h) => h.airLength) ? [['Air deck (łączna długość)', `${fmt(state.holes.reduce((s, h) => s + h.airLength, 0), 1)} m`]] : []),
     ['Urabiana objętość (B×S×H)', `${fmt(s.volume, 0)} m³`],
     ['Jednostkowe zużycie MW', s.volume ? `${fmt(s.powderFactor, 2)} kg/m³` : '—'],
     ['Wiercenie jednostkowe', s.volume ? `${fmt(s.specificDrilling, 3)} m/m³` : '—'],
@@ -602,7 +613,9 @@ function exportCsv() {
     const desc = h.segments.filter((s) => s.kind !== 'empty').map((s) => {
       const len = fmt(s.to - s.from, 2).replace(',', '.');
       if (s.kind === 'stemming') return `przybitka ${len} m`;
-      if (s.kind === 'deck') return `przekladka ${len} m`;
+      if (s.kind === 'deck') return `przesypka ${len} m`;
+      if (s.kind === 'air') return `air deck ${len} m`;
+      if (s.kind === 'plug') return `wkladka otworowa ${len} m`;
       return `${state.products.find((p) => p.id === s.productId)?.name ?? s.productId} ${len} m ${fmt(s.mass, 1).replace(',', '.')} kg`;
     }).join('; ').replaceAll(',', ' ');
     lines.push([state.planId, h.id, h.name, h.type === 'profile' ? 'profilowy' : 'zwykly', x, y, z, h.toe.x + ox, h.toe.y + oy, h.toe.z + zShift(), h.length, h.diameter, h.targetZ, h.subdrill, tp.incl, tp.inclAz, h.stemming, h.chargeLength, h.mass, desc, h.manual ? 'reczny' : 'siatka']

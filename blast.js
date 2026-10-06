@@ -103,7 +103,8 @@ export function summarize(holes, areaM2) {
 
 // Ładowanie otworu wg szablonu. Przybitka (od wlotu) jest stała. Szablon to lista od góry do dołu:
 //   ładunek: { kind: 'charge', productId, by: 'rest' | 'length' | 'mass', length (m), mass (kg) }
-//   przesypka: { kind: 'deck', by: 'length' | 'rest', length (m), anchor?: 'depth' | 'elev', at? (m od wlotu lub m n.p.m.) }
+//   przesypka: { kind: 'deck', by: 'length' | 'rest', length (m), anchor?: 'depth' | 'elev', at? (m od wlotu lub m n.p.m.),
+//                material?: 'filler' (przesypka) | 'air' (air deck), plug?: bool, plugLen? (m, wkładka otworowa na górze odcinka powietrznego) }
 // Przesypka z anchor ma ustalone położenie. Ładunek tuż nad nią liczy się sam, żeby do niej sięgnąć.
 // „reszta” wypełnia pozostałe miejsce w sekcji: ładunek (masa MW się doblicza) albo przesypka (dopasowuje się do zadanej masy MW).
 // Dawny zapis (flex, length) jest nadal obsługiwany. depthAtElevation(m n.p.m.) -> głębokość wzdłuż otworu.
@@ -117,6 +118,9 @@ export function loadHole(length, template, { stemming, diameterMm, products, dep
     const e = { kind: t.kind, productId: t.productId, by: t.by ?? (t.flex ? 'rest' : 'length'), len: null, anchorDepth: null };
     if (t.kind === 'deck') {
       if (e.by === 'mass') e.by = 'length';
+      e.material = t.material === 'air' ? 'air' : 'filler';
+      e.plug = e.material === 'air' && !!t.plug;
+      e.plugLen = Math.max(0, t.plugLen ?? 0.3);
       if (t.anchor === 'depth') e.anchorDepth = t.at;
       else if (t.anchor === 'elev' && depthAtElevation) e.anchorDepth = depthAtElevation(t.at);
       if (e.anchorDepth != null && !Number.isFinite(e.anchorDepth)) e.anchorDepth = null;
@@ -144,7 +148,7 @@ export function loadHole(length, template, { stemming, diameterMm, products, dep
       if (e.anchorDepth > length + 1e-9) warnings.push('Przesypka o ustalonym położeniu leży poniżej dna otworu.');
       const from = Math.min(Math.max(e.anchorDepth, a), length), to = Math.min(from + e.len, length);
       close(from);
-      parts.push({ type: 'deck', from, to });
+      parts.push({ type: 'deck', from, to, el: e });
       a = to;
     } else cur.push(e);
   }
@@ -152,7 +156,18 @@ export function loadHole(length, template, { stemming, diameterMm, products, dep
 
   const segments = [{ kind: 'stemming', from: 0, to: stem }];
   const byProduct = {};
-  let mass = 0, chargeLength = 0;
+  let mass = 0, chargeLength = 0, plugs = 0, airLength = 0;
+  // przesypka (materiał obojętny) albo air deck; wkładka otworowa podtrzymuje to, co leży nad odcinkiem powietrznym
+  const pushDeck = (e, from, to) => {
+    if (to - from <= 1e-9) return;
+    if (e.material !== 'air') { segments.push({ kind: 'deck', from, to }); return; }
+    let start = from;
+    if (e.plug) {
+      const pl = Math.min(e.plugLen, to - from);
+      if (pl > 1e-9) { segments.push({ kind: 'plug', from, to: from + pl }); plugs++; start = from + pl; }
+    }
+    if (to - start > 1e-9) { segments.push({ kind: 'air', from: start, to }); airLength += to - start; }
+  };
   const empty = (from, to, why) => { if (to - from > 1e-6) { segments.push({ kind: 'empty', from, to }); if (why) warnings.push(why); } };
   const placeCharge = (e, from, len) => {
     const p = prod(e.productId);
@@ -174,7 +189,7 @@ export function loadHole(length, template, { stemming, diameterMm, products, dep
   };
 
   parts.forEach((part, pi) => {
-    if (part.type === 'deck') { if (part.to - part.from > 1e-9) segments.push({ kind: 'deck', from: part.from, to: part.to }); return; }
+    if (part.type === 'deck') { pushDeck(part.el, part.from, part.to); return; }
     const W = Math.max(0, part.b - part.a), last = pi === parts.length - 1;
     const rest = part.els.filter((e) => e.by === 'rest');
     if (rest.length > 1) warnings.push('Więcej niż jeden element „reszta” w jednym odcinku, użyto pierwszego.');
@@ -188,11 +203,11 @@ export function loadHole(length, template, { stemming, diameterMm, products, dep
     for (const e of part.els) {
       const len = Math.min(e.len ?? 0, part.b - pos);
       if (len <= 1e-9) continue;
-      if (e.kind === 'deck') segments.push({ kind: 'deck', from: pos, to: pos + len });
+      if (e.kind === 'deck') pushDeck(e, pos, pos + len);
       else placeCharge(e, pos, len);
       pos += len;
     }
     empty(pos, part.b, last ? `Niewypełniony odcinek ${(part.b - pos).toFixed(2)} m przy dnie otworu.` : 'Odcinek bez ładunku nad przesypką.');
   });
-  return { segments, mass, chargeLength, stemming: stem, byProduct, warnings: [...new Set(warnings)] };
+  return { segments, mass, chargeLength, stemming: stem, byProduct, plugs, airLength, warnings: [...new Set(warnings)] };
 }
