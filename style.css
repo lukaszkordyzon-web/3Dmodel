@@ -79,3 +79,11 @@ input[type=text], select { width: 100%; padding: 6px 8px; background: var(--bg);
 #profCanvas { flex: 1; min-height: 0; width: 100%; display: block; }
 #profInfo { padding: 2px 10px 6px; margin: 0; }
 #view.hasProfile #status { bottom: min(312px, 50%); }
+#tplInfo { white-space: pre-line; font-variant-numeric: tabular-nums; }
+.tplrow { display: block; }
+.tplhead, .tplbody { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tplbody { margin-top: 6px; }
+.tplhead select { flex: 1 1 0; min-width: 0; }
+.tplbody select { width: auto; flex: 0 1 auto; max-width: 48%; }
+.tplbody .tools { margin-left: auto; display: flex; gap: 4px; }
+.tplrow .k { width: auto; }

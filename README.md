@@ -21,8 +21,12 @@ Po zmianach w `app.js`, `index.html` lub `style.css` przebuduj osadzany plik:
 2. „Rysuj obrys” → klikaj wierzchołki na modelu → „Zamknij obrys”. Siatka generuje się sama.
 3. **Typy otworów** (zwykłe / profilowe): każdy ma średnicę, rzędną docelową wyrobiska (m n.p.m.), przewiert poniżej niej,
    stałą przybitkę i nachylenie. Typ otworu zmienia tryb „Zmień typ otworu” (klik w otwór).
-4. **Szablon ładunku** dla typu: lista od góry do dołu (ładunek / przekładka), jeden element „reszta” rozciąga się na
-   głębokość otworu. Szablon stosuje się do wszystkich otworów danego typu. Produkty z bazy MW (sypkie i nabojowane).
+4. **Długość otworu**: do rzędnej dna (rzędna docelowa − przewiert, dno zawsze na tej samej rzędnej) albo stała długość.
+   **Szablon ładunku** dla typu (przybitka stała od wlotu, potem lista od góry do dołu):
+   - ładunek: „reszta” (wypełnia wolne miejsce, masa MW się dolicza), zadana długość albo zadana masa (kg);
+   - przesypka: zadana długość i położenie (po kolei, na głębokości od wlotu albo na rzędnej), ewentualnie „reszta”,
+     która dopasowuje się do zadanej masy MW. Ładunek tuż nad przesypką o ustalonym położeniu liczy się sam.
+   Szablon stosuje się do wszystkich otworów danego typu. Produkty z bazy MW (sypkie i nabojowane).
 5. **Profil**: tryb „Profil” → klik w otwór (przekrój przez ten otwór, w kierunku jego nachylenia) albo dwa punkty na terenie.
    Pokazuje teren, rzędne docelowe, otwory z ładunkiem i zabiór (pole przekroju nad rzędną docelową).
 6. **Zapis projektu** (JSON) i **eksport planu wierceń** w formacie IREDES XML (kolejność osi N, E, H, układ PL-2000).

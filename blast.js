@@ -61,10 +61,10 @@ export function linearLoad(densityGcc, diameterMm) {
 
 // Geometria jednego otworu. inclDeg = odchylenie od pionu, azimuthDeg = kierunek pochylenia.
 // subdrill liczony w pionie poniżej poziomu spągu.
-export function holeGeometry({ x, y, collarZ }, { floorZ, subdrill, inclDeg = 0, azimuthDeg = 0 }) {
+export function holeGeometry({ x, y, collarZ }, { floorZ, subdrill, inclDeg = 0, azimuthDeg = 0, fixedLength = null }) {
   const inc = (inclDeg * Math.PI) / 180, az = (azimuthDeg * Math.PI) / 180;
   const vertical = Math.max(0, collarZ - floorZ + subdrill);
-  const length = vertical / Math.cos(inc);
+  const length = fixedLength != null ? fixedLength : vertical / Math.cos(inc); // stała długość albo do rzędnej dna
   const dir = { x: Math.sin(inc) * Math.sin(az), y: Math.sin(inc) * Math.cos(az), z: -Math.cos(inc) };
   const toe = { x: x + dir.x * length, y: y + dir.y * length, z: collarZ + dir.z * length };
   return { length, dir, toe, benchHeight: Math.max(0, collarZ - floorZ) };
@@ -101,48 +101,98 @@ export function summarize(holes, areaM2) {
   };
 }
 
-// Ładowanie otworu wg szablonu. template: lista od góry do dołu (po przybitce):
-//   { kind: 'charge', productId, length, flex? } albo { kind: 'deck', length } (przekładka / przesypka).
-// Przybitka (od wlotu) jest stała. Element z flex dostaje całą resztę długości otworu.
-// products: [{ id, kind: 'bulk'|'cartridge', density, cartLen(mm), cartMass(kg), cartDia(mm) }]
-// Zwraca segmenty (od wlotu) z masami; mass w kg.
-export function loadHole(length, template, { stemming, diameterMm, products }) {
+// Ładowanie otworu wg szablonu. Przybitka (od wlotu) jest stała. Szablon to lista od góry do dołu:
+//   ładunek: { kind: 'charge', productId, by: 'rest' | 'length' | 'mass', length (m), mass (kg) }
+//   przesypka: { kind: 'deck', by: 'length' | 'rest', length (m), anchor?: 'depth' | 'elev', at? (m od wlotu lub m n.p.m.) }
+// Przesypka z anchor ma ustalone położenie. Ładunek tuż nad nią liczy się sam, żeby do niej sięgnąć.
+// „reszta” wypełnia pozostałe miejsce w sekcji: ładunek (masa MW się doblicza) albo przesypka (dopasowuje się do zadanej masy MW).
+// Dawny zapis (flex, length) jest nadal obsługiwany. depthAtElevation(m n.p.m.) -> głębokość wzdłuż otworu.
+export function loadHole(length, template, { stemming, diameterMm, products, depthAtElevation }) {
   const warnings = [];
   const stem = Math.min(stemming, length);
-  const segments = [{ kind: 'stemming', from: 0, to: stem }];
-  const fixed = template.reduce((s, t) => s + (t.flex ? 0 : Math.max(0, t.length || 0)), 0);
-  const flexLen = Math.max(0, length - stem - fixed);
-  if (fixed > length - stem + 1e-9) warnings.push('Ładunek i przekładki nie mieszczą się w otworze, dolne elementy obcięto.');
-  const byProduct = {};
-  let pos = stem, mass = 0, chargeLength = 0;
-  for (const t of template) {
-    const want = t.flex ? flexLen : Math.max(0, t.length || 0);
-    const len = Math.min(want, length - pos);
-    if (len <= 1e-9) continue;
+  const prod = (id) => products.find((p) => p.id === id);
+  const lin = (p) => linearLoad(p.density, diameterMm);
+
+  const els = template.map((t) => {
+    const e = { kind: t.kind, productId: t.productId, by: t.by ?? (t.flex ? 'rest' : 'length'), len: null, anchorDepth: null };
     if (t.kind === 'deck') {
-      segments.push({ kind: 'deck', from: pos, to: pos + len });
-      pos += len;
-      continue;
+      if (e.by === 'mass') e.by = 'length';
+      if (t.anchor === 'depth') e.anchorDepth = t.at;
+      else if (t.anchor === 'elev' && depthAtElevation) e.anchorDepth = depthAtElevation(t.at);
+      if (e.anchorDepth != null && !Number.isFinite(e.anchorDepth)) e.anchorDepth = null;
+      if (e.anchorDepth != null) e.by = 'length'; // przesypka zakotwiczona ma zadaną długość
+      if (e.by === 'length') e.len = Math.max(0, t.length || 0);
+      return e;
     }
-    const p = products.find((x) => x.id === t.productId);
-    if (!p) { warnings.push('Brak produktu w bazie MW.'); segments.push({ kind: 'empty', from: pos, to: pos + len }); pos += len; continue; }
+    const p = prod(t.productId);
+    if (e.by === 'length') e.len = Math.max(0, t.length || 0);
+    else if (e.by === 'mass') {
+      if (!p) { e.len = 0; warnings.push('Brak produktu w bazie MW.'); }
+      else if (p.kind === 'cartridge') e.len = (Math.max(0, Math.round((t.mass || 0) / p.cartMass)) * p.cartLen) / 1000;
+      else e.len = lin(p) > 0 ? Math.max(0, (t.mass || 0) / lin(p)) : 0;
+    }
+    return e;
+  });
+
+  // sekcje rozdzielone przesypkami o ustalonym położeniu
+  const parts = [];
+  let a = stem, cur = [];
+  const close = (to) => { parts.push({ type: 'section', els: cur, a, b: to }); cur = []; };
+  for (const e of els) {
+    if (e.kind === 'deck' && e.anchorDepth != null) {
+      if (e.anchorDepth < a - 1e-9) warnings.push('Przesypka o ustalonym położeniu leży wyżej niż koniec poprzedniego elementu, przesunięto ją w dół.');
+      if (e.anchorDepth > length + 1e-9) warnings.push('Przesypka o ustalonym położeniu leży poniżej dna otworu.');
+      const from = Math.min(Math.max(e.anchorDepth, a), length), to = Math.min(from + e.len, length);
+      close(from);
+      parts.push({ type: 'deck', from, to });
+      a = to;
+    } else cur.push(e);
+  }
+  close(length);
+
+  const segments = [{ kind: 'stemming', from: 0, to: stem }];
+  const byProduct = {};
+  let mass = 0, chargeLength = 0;
+  const empty = (from, to, why) => { if (to - from > 1e-6) { segments.push({ kind: 'empty', from, to }); if (why) warnings.push(why); } };
+  const placeCharge = (e, from, len) => {
+    const p = prod(e.productId);
+    if (!p) { warnings.push('Brak produktu w bazie MW.'); empty(from, from + len); return; }
     let eff = len, m;
     if (p.kind === 'cartridge') {
-      const cl = p.cartLen / 1000;
-      const n = Math.floor(len / cl + 1e-9);
-      eff = n * cl;
-      m = n * p.cartMass;
+      const cl = p.cartLen / 1000, n = Math.floor(len / cl + 1e-9);
+      eff = n * cl; m = n * p.cartMass;
       if (p.cartDia > diameterMm) warnings.push(`Nabój ${p.name} (Ø${p.cartDia}) jest szerszy niż otwór (Ø${diameterMm}).`);
-      if (n === 0) warnings.push(`Długość ${len.toFixed(2)} m jest krótsza niż jeden nabój ${p.name}.`);
-      segments.push({ kind: 'charge', productId: p.id, from: pos, to: pos + eff, mass: m, count: n });
-      if (len - eff > 1e-6) segments.push({ kind: 'empty', from: pos + eff, to: pos + len });
+      if (n === 0) warnings.push(`Odcinek ${len.toFixed(2)} m jest krótszy niż jeden nabój ${p.name}.`);
+      else segments.push({ kind: 'charge', productId: p.id, from, to: from + eff, mass: m, count: n });
+      empty(from + eff, from + len);
     } else {
-      m = linearLoad(p.density, diameterMm) * len;
-      segments.push({ kind: 'charge', productId: p.id, from: pos, to: pos + len, mass: m });
+      m = lin(p) * len;
+      segments.push({ kind: 'charge', productId: p.id, from, to: from + len, mass: m });
     }
     mass += m; chargeLength += eff;
     byProduct[p.id] = (byProduct[p.id] ?? 0) + m;
-    pos += len;
-  }
-  return { segments, mass, chargeLength, stemming: stem, byProduct, warnings };
+  };
+
+  parts.forEach((part, pi) => {
+    if (part.type === 'deck') { if (part.to - part.from > 1e-9) segments.push({ kind: 'deck', from: part.from, to: part.to }); return; }
+    const W = Math.max(0, part.b - part.a), last = pi === parts.length - 1;
+    const rest = part.els.filter((e) => e.by === 'rest');
+    if (rest.length > 1) warnings.push('Więcej niż jeden element „reszta” w jednym odcinku, użyto pierwszego.');
+    let absorber = rest[0];
+    if (!absorber && !last) absorber = [...part.els].reverse().find((e) => e.kind === 'charge'); // sięga do przesypki o ustalonym położeniu
+    for (const e of rest.slice(1)) e.len = 0;
+    const fixedSum = part.els.reduce((s, e) => s + (e === absorber || e.len == null ? 0 : e.len), 0);
+    if (absorber) absorber.len = Math.max(0, W - fixedSum);
+    if (fixedSum > W + 1e-9) warnings.push('Elementy nie mieszczą się w otworze, dolne obcięto.');
+    let pos = part.a;
+    for (const e of part.els) {
+      const len = Math.min(e.len ?? 0, part.b - pos);
+      if (len <= 1e-9) continue;
+      if (e.kind === 'deck') segments.push({ kind: 'deck', from: pos, to: pos + len });
+      else placeCharge(e, pos, len);
+      pos += len;
+    }
+    empty(pos, part.b, last ? `Niewypełniony odcinek ${(part.b - pos).toFixed(2)} m przy dnie otworu.` : 'Odcinek bez ładunku nad przesypką.');
+  });
+  return { segments, mass, chargeLength, stemming: stem, byProduct, warnings: [...new Set(warnings)] };
 }

@@ -94,6 +94,10 @@
         <button type="button" data-type="profile">Profilowe</button>
       </div>
       <div class="grid2">
+        <label>Długość otworu
+          <select id="lenMode"><option value="toe">do rzędnej dna</option><option value="fixed">stała długość</option></select>
+        </label>
+        <label id="fixedLenBox">Stała długość [m]<input type="number" id="fixedLen" data-type value="8" min="0.5" step="0.1"></label>
         <label>Średnica otworu [mm]<input type="number" id="diameter" data-type value="95" min="30" step="1"></label>
         <label>Rzędna docelowa wyrobiska [m n.p.m.]<input type="number" id="target" data-type value="0" step="0.1"></label>
         <label>Przewiert poniżej rzędnej [m]<input type="number" id="subdrill" data-type value="1.1" min="0" step="0.1"></label>
@@ -101,12 +105,13 @@
         <label>Nachylenie od pionu [°]<input type="number" id="incl" data-type value="0" min="0" max="45" step="1"></label>
         <label>Azymut nachylenia [°]<input type="number" id="inclAz" data-type value="0" step="1"></label>
       </div>
+      <p class="hint" id="toeInfo"></p>
       <label class="check"><input type="checkbox" id="showFloor" checked> Pokaż płaszczyznę rzędnej docelowej</label>
     </section>
 
     <section>
       <h2>5. Ładunek otworu (szablon dla typu)</h2>
-      <p class="hint">Przybitka jest stała (od wlotu). Elementy poniżej idą od góry do dołu. Zaznaczony „reszta” wypełnia pozostałą długość, więc szablon pasuje do otworów o różnej głębokości.</p>
+      <p class="hint"><strong>Przybitka</strong> jest stała (od wlotu). <strong>Ładunek</strong>: „reszta” wypełnia wolne miejsce, a masa MW sama się dolicza; albo zadajesz długość lub masę (kg). <strong>Przesypka</strong>: zadajesz długość i położenie (od wlotu albo rzędną), ewentualnie „reszta”, wtedy dopasowuje się do zadanej masy MW. Ładunek tuż nad przesypką o ustalonym położeniu liczy się sam.</p>
       <div id="tplRows"></div>
       <div class="row">
         <button id="addCharge" class="ghost">+ Ładunek</button>

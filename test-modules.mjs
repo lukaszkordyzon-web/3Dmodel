@@ -33,6 +33,51 @@ assert.equal(r.segments[1].count, 11); near(r.mass, 33); near(r.chargeLength, 5.
 r = b.loadHole(4, [{ kind: 'charge', productId: 'anfo', length: 5 }], { stemming: 2, diameterMm: 95, products: P });
 assert.ok(r.warnings.length > 0); near(r.chargeLength, 2);
 
+
+// --- szablon v2: przesypka o ustalonym położeniu, ładunek się doblicza ---
+const emu = b.linearLoad(1.2, 95);
+r = b.loadHole(10, [
+  { kind: 'charge', productId: 'emu-bulk', by: 'rest' },
+  { kind: 'deck', by: 'length', length: 0.5, anchor: 'depth', at: 6 },
+  { kind: 'charge', productId: 'emu-bulk', by: 'rest' },
+], { stemming: 2, diameterMm: 95, products: P });
+assert.equal(r.segments.map((s) => s.kind).join(), 'stemming,charge,deck,charge');
+near(r.segments[1].from, 2); near(r.segments[1].to, 6); near(r.segments[2].from, 6); near(r.segments[2].to, 6.5); near(r.segments[3].to, 10);
+near(r.mass, emu * (4 + 3.5)); assert.equal(r.warnings.length, 0);
+// kotwica na rzędnej: kolar 100, otwór pionowy, przesypka na rzędnej 94 -> głębokość 6
+r = b.loadHole(10, [{ kind: 'charge', productId: 'anfo', by: 'rest' }, { kind: 'deck', by: 'length', length: 1, anchor: 'elev', at: 94 }, { kind: 'charge', productId: 'anfo', by: 'rest' }],
+  { stemming: 2, diameterMm: 95, products: P, depthAtElevation: (e) => 100 - e });
+near(r.segments.find((s) => s.kind === 'deck').from, 6);
+// ten sam szablon na otworze o innej wysokości kolaru (105): przesypka na tej samej rzędnej, czyli 11 m od wlotu
+r = b.loadHole(16, [{ kind: 'charge', productId: 'anfo', by: 'rest' }, { kind: 'deck', by: 'length', length: 1, anchor: 'elev', at: 94 }, { kind: 'charge', productId: 'anfo', by: 'rest' }],
+  { stemming: 2, diameterMm: 95, products: P, depthAtElevation: (e) => 105 - e });
+near(r.segments.find((s) => s.kind === 'deck').from, 11);
+
+// --- szablon v2: zadana masa MW, przesypka się dopasowuje ---
+r = b.loadHole(12, [
+  { kind: 'charge', productId: 'emu-bulk', by: 'mass', mass: 20 },
+  { kind: 'deck', by: 'rest' },
+  { kind: 'charge', productId: 'emu-bulk', by: 'mass', mass: 15 },
+], { stemming: 2, diameterMm: 95, products: P });
+near(r.mass, 35, 1e-9);
+const deck = r.segments.find((s) => s.kind === 'deck'); near(deck.to - deck.from, 10 - 35 / emu, 1e-9);
+// masa w nabojach: 10 kg po 3 kg -> 3 naboje = 9 kg
+r = b.loadHole(12, [{ kind: 'charge', productId: 'nab-80', by: 'mass', mass: 10 }, { kind: 'deck', by: 'rest' }], { stemming: 2, diameterMm: 95, products: P });
+assert.equal(r.segments[1].count, 3); near(r.mass, 9); near(r.segments[1].to - r.segments[1].from, 1.5);
+// zbyt duża masa: ostrzeżenie o obcięciu
+r = b.loadHole(5, [{ kind: 'charge', productId: 'emu-bulk', by: 'mass', mass: 100 }], { stemming: 2, diameterMm: 95, products: P });
+assert.ok(r.warnings.length > 0); near(r.chargeLength, 3);
+// niewypełniony koniec otworu daje ostrzeżenie
+r = b.loadHole(10, [{ kind: 'charge', productId: 'anfo', by: 'length', length: 3 }], { stemming: 2, diameterMm: 95, products: P });
+assert.ok(r.warnings.some((w) => /Niewypełniony/.test(w))); near(r.segments.at(-1).to - r.segments.at(-1).from, 5);
+
+// --- długość otworu: do rzędnej dna albo stała ---
+const g1 = b.holeGeometry({ x: 0, y: 0, collarZ: 110 }, { floorZ: 100, subdrill: 1 });
+const g2 = b.holeGeometry({ x: 0, y: 0, collarZ: 105 }, { floorZ: 100, subdrill: 1 });
+near(g1.toe.z, 99); near(g2.toe.z, 99); near(g2.length, 6); // dno na stałej rzędnej
+const g3 = b.holeGeometry({ x: 0, y: 0, collarZ: 105 }, { floorZ: 100, subdrill: 1, fixedLength: 8 });
+near(g3.length, 8); near(g3.toe.z, 97);
+
 // --- IREDES ---
 const xml = buildIredesXml({
   planName: 'Test', project: 'P', coordSystem: 'ETRF2000-PL / CS2000/21', createDate: '2026-01-01T00:00:00', bearing: -10,

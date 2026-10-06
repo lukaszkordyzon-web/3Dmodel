@@ -42,8 +42,16 @@ world.add(overlay);
 // ---------- stan ----------
 const TYPE_NAME = { normal: 'Zwykłe', profile: 'Profilowe' };
 const TYPE_FIELDS = { diameter: 'diameter', target: 'targetZ', subdrill: 'subdrill', stemming: 'stemming', incl: 'incl', inclAz: 'inclAz' };
-const defaultTemplate = () => [{ kind: 'charge', productId: 'emu-bulk', flex: true }];
-const defaultType = () => ({ diameter: 95, targetZ: 0, subdrill: 1.1, stemming: 2.4, incl: 0, inclAz: 0, template: defaultTemplate() });
+const defaultTemplate = () => [{ kind: 'charge', productId: 'emu-bulk', by: 'rest' }];
+const defaultType = () => ({ diameter: 95, targetZ: 0, subdrill: 1.1, stemming: 2.4, incl: 0, inclAz: 0, lenMode: 'toe', fixedLength: 8, template: defaultTemplate() });
+
+// Zapis szablonu z wcześniejszych wersji (flex) -> obecny (by).
+function migrateSeg(seg) {
+  if (!seg.by) seg.by = seg.flex ? 'rest' : 'length';
+  delete seg.flex;
+  if (seg.kind === 'deck' && seg.by === 'mass') seg.by = 'length';
+  return seg;
+}
 
 function loadProducts() {
   try {
@@ -254,9 +262,10 @@ function update() {
   for (const s of [...state.grid, ...state.manual]) {
     const type = s.type === 'profile' ? 'profile' : 'normal';
     const tp = state.types[type];
-    const g = blast.holeGeometry({ x: s.x, y: s.y, collarZ: s.z }, { floorZ: tp.targetZ - zs, subdrill: tp.subdrill, inclDeg: tp.incl, azimuthDeg: tp.inclAz });
+    const g = blast.holeGeometry({ x: s.x, y: s.y, collarZ: s.z }, { floorZ: tp.targetZ - zs, subdrill: tp.subdrill, inclDeg: tp.incl, azimuthDeg: tp.inclAz, fixedLength: tp.lenMode === 'fixed' ? tp.fixedLength : null });
     if (g.benchHeight < 0.3) { state.skipped++; continue; }
-    const c = blast.loadHole(g.length, tp.template, { stemming: tp.stemming, diameterMm: tp.diameter, products: state.products });
+    const cosI = Math.cos((tp.incl * Math.PI) / 180);
+    const c = blast.loadHole(g.length, tp.template, { stemming: tp.stemming, diameterMm: tp.diameter, products: state.products, depthAtElevation: (elev) => (s.z - (elev - zs)) / cosI });
     s.hid ??= state.nextHid++; // zabezpieczenie dla projektów bez numerów
     const id = s.hid;
     const seq = state.holes.length + 1;
@@ -279,6 +288,8 @@ function update() {
 function typeToInputs() {
   const t = state.types[state.editType];
   for (const [id, k] of Object.entries(TYPE_FIELDS)) $(id).value = t[k];
+  $('lenMode').value = t.lenMode ?? 'toe'; $('fixedLen').value = t.fixedLength ?? 8;
+  renderToeInfo();
   document.querySelectorAll('#typeTabs button').forEach((b) => b.classList.toggle('on', b.dataset.type === state.editType));
   renderTemplate();
 }
@@ -286,6 +297,16 @@ function typeToInputs() {
 function inputsToType() {
   const t = state.types[state.editType];
   for (const [id, k] of Object.entries(TYPE_FIELDS)) t[k] = num(id);
+  t.lenMode = $('lenMode').value; t.fixedLength = num('fixedLen');
+  renderToeInfo();
+}
+
+function renderToeInfo() {
+  const t = state.types[state.editType];
+  $('fixedLenBox').hidden = t.lenMode !== 'fixed';
+  $('toeInfo').textContent = t.lenMode === 'fixed'
+    ? `Stała długość ${fmt(t.fixedLength, 2)} m: rzędna dna wynika z rzędnej wlotu i nachylenia.`
+    : `Rzędna dna otworu: ${fmt(t.targetZ - t.subdrill, 2)} m n.p.m. (rzędna docelowa − przewiert). Długość zależy od rzędnej wlotu.`;
 }
 
 // ---------- szablon ładunku ----------
@@ -293,42 +314,76 @@ function renderTemplate() {
   const t = state.types[state.editType];
   const box = $('tplRows');
   box.replaceChildren();
-  const move = (i, d) => { const j = i + d; if (j < 0 || j >= t.template.length) return; [t.template[i], t.template[j]] = [t.template[j], t.template[i]]; renderTemplate(); update(); };
+  const redo = () => { renderTemplate(); update(); };
+  const move = (i, d) => { const j = i + d; if (j < 0 || j >= t.template.length) return; [t.template[i], t.template[j]] = [t.template[j], t.template[i]]; redo(); };
+  const select = (opts, value, onchange, title) => {
+    const s = el('select');
+    for (const [v, label] of opts) s.append(new Option(label, v, false, v === value));
+    s.title = title ?? ''; s.onchange = () => onchange(s.value); return s;
+  };
+  const field = (value, step, title, set) => {
+    const i = el('input');
+    i.type = 'number'; i.min = '0'; i.step = step; i.value = value ?? 0; i.title = title;
+    i.oninput = () => { set(parseFloat(i.value) || 0); update(); }; return i;
+  };
   t.template.forEach((seg, i) => {
-    const row = el('div', 'tplrow');
-    row.append(el('span', 'k', seg.kind === 'deck' ? 'Przekładka' : 'Ładunek'));
-    if (seg.kind === 'charge') {
-      const sel = el('select');
-      for (const p of state.products) sel.append(new Option(p.name, p.id, false, p.id === seg.productId));
-      sel.onchange = () => { seg.productId = sel.value; update(); };
-      row.append(sel);
+    migrateSeg(seg);
+    const row = el('div', 'tplrow'), head = el('div', 'tplhead'), body = el('div', 'tplbody');
+    const isDeck = seg.kind === 'deck';
+    const anchored = isDeck && (seg.anchor === 'depth' || seg.anchor === 'elev');
+    head.append(el('span', 'k', isDeck ? 'Przesypka' : 'Ładunek'));
+    if (!isDeck) head.append(select(state.products.map((p) => [p.id, p.name.replace(/ \(przykład\)/, '')]), seg.productId, (v) => { seg.productId = v; update(); }, 'Produkt z bazy MW'));
+    const modes = isDeck
+      ? [['length', 'długość'], ['rest', 'reszta']].filter((m) => !(anchored && m[0] === 'rest'))
+      : [['rest', 'reszta'], ['length', 'długość'], ['mass', 'masa MW']];
+    body.append(select(modes, seg.by, (v) => { seg.by = v; redo(); },
+      isDeck ? 'Długość przesypki: zadana albo „reszta” (dopasuje się do zadanej masy MW)' : 'Ładunek: „reszta” wypełnia wolne miejsce (masa MW się dolicza), albo zadajesz długość lub masę'));
+    if (seg.by === 'length') body.append(field(seg.length, '0.1', 'Długość [m]', (v) => { seg.length = v; }), el('span', 'k', 'm'));
+    if (seg.by === 'mass') body.append(field(seg.mass, '0.5', 'Masa MW [kg]', (v) => { seg.mass = v; }), el('span', 'k', 'kg'));
+    if (isDeck) {
+      body.append(select([['auto', 'po kolei'], ['depth', 'od wlotu'], ['elev', 'na rzędnej']], anchored ? seg.anchor : 'auto', (v) => {
+        const prev = seg.anchor;
+        if (v === 'auto') delete seg.anchor;
+        else {
+          seg.anchor = v;
+          if (seg.by === 'rest') { seg.by = 'length'; seg.length ??= 0.5; }
+          if (seg.at == null || prev !== v) seg.at = v === 'elev' ? +(t.targetZ + 3).toFixed(1) : 5;
+        }
+        redo();
+      }, 'Położenie przesypki: po poprzednim elemencie, na głębokości od wlotu albo na zadanej rzędnej'));
+      if (anchored) body.append(field(seg.at, '0.1', seg.anchor === 'depth' ? 'Głębokość od wlotu [m]' : 'Rzędna [m n.p.m.]', (v) => { seg.at = v; }), el('span', 'k', seg.anchor === 'depth' ? 'm' : 'm n.p.m.'));
     }
-    const len = el('input');
-    len.type = 'number'; len.min = '0'; len.step = '0.1'; len.value = seg.length ?? 0; len.disabled = !!seg.flex;
-    len.title = 'Długość [m]';
-    len.oninput = () => { seg.length = parseFloat(len.value) || 0; update(); };
-    row.append(len, el('span', 'k', 'm'));
-    if (seg.kind === 'charge') {
-      const lab = el('label', 'flex'), cb = el('input');
-      cb.type = 'checkbox'; cb.checked = !!seg.flex;
-      cb.onchange = () => { t.template.forEach((s) => { s.flex = false; }); seg.flex = cb.checked; renderTemplate(); update(); };
-      lab.append(cb, document.createTextNode('reszta'));
-      row.append(lab);
+    const tools = el('span', 'tools');
+    for (const [txt, fn, ttl] of [['▲', () => move(i, -1), 'W górę'], ['▼', () => move(i, 1), 'W dół'], ['✕', () => { t.template.splice(i, 1); redo(); }, 'Usuń']]) {
+      const b = el('button', 'ghost', txt); b.type = 'button'; b.title = ttl; b.onclick = fn; tools.append(b);
     }
-    for (const [txt, fn, ttl] of [['▲', () => move(i, -1), 'W górę'], ['▼', () => move(i, 1), 'W dół'], ['✕', () => { t.template.splice(i, 1); renderTemplate(); update(); }, 'Usuń']]) {
-      const b = el('button', 'ghost', txt); b.type = 'button'; b.title = ttl; b.onclick = fn; row.append(b);
-    }
+    body.append(tools);
+    row.append(head, body);
     box.append(row);
   });
-  if (!t.template.length) box.append(el('p', 'hint', 'Brak ładunku. Dodaj ładunek lub przekładkę.'));
+  if (!t.template.length) box.append(el('p', 'hint', 'Brak ładunku. Dodaj ładunek lub przesypkę.'));
+}
+
+// Otwór typowy dla podglądu szablonu: średni z istniejących albo przykładowy.
+function typicalHole(type) {
+  const t = state.types[type];
+  const hs = state.holes.filter((h) => h.type === type);
+  const cosI = Math.cos((t.incl * Math.PI) / 180), zs = zShift();
+  if (hs.length) return { L: hs.reduce((s, h) => s + h.length, 0) / hs.length, collarZ: hs.reduce((s, h) => s + h.z, 0) / hs.length, cosI, avg: true };
+  const L = t.lenMode === 'fixed' ? t.fixedLength : 8;
+  return { L, collarZ: t.targetZ - zs - t.subdrill + L * cosI, cosI, avg: false };
 }
 
 function renderTplInfo() {
   const t = state.types[state.editType];
-  const hs = state.holes.filter((h) => h.type === state.editType);
-  const L = hs.length ? hs.reduce((s, h) => s + h.length, 0) / hs.length : 8;
-  const r = blast.loadHole(L, t.template, { stemming: t.stemming, diameterMm: t.diameter, products: state.products });
-  $('tplInfo').textContent = `${TYPE_NAME[state.editType]}, otwór ${fmt(L, 1)} m${hs.length ? ' (średnia)' : ''}: przybitka ${fmt(r.stemming, 1)} m, ładunek ${fmt(r.chargeLength, 1)} m, ${fmt(r.mass, 1)} kg. ${r.warnings.join(' ')}`;
+  const { L, collarZ, cosI, avg } = typicalHole(state.editType), zs = zShift();
+  const r = blast.loadHole(L, t.template, { stemming: t.stemming, diameterMm: t.diameter, products: state.products, depthAtElevation: (elev) => (collarZ - (elev - zs)) / cosI });
+  const name = { stemming: 'przybitka', deck: 'przesypka', charge: 'MW', empty: 'puste' };
+  const lines = r.segments.filter((s) => s.to - s.from > 1e-6).map((s) => {
+    const label = s.kind === 'charge' ? state.products.find((p) => p.id === s.productId)?.name.replace(/ \(przykład\)/, '') ?? 'MW' : name[s.kind];
+    return `${fmt(s.from, 2)}–${fmt(s.to, 2)} m  ${label}${s.mass ? `: ${fmt(s.mass, 1)} kg` : ''}`;
+  });
+  $('tplInfo').textContent = `${TYPE_NAME[state.editType]}, otwór ${fmt(L, 1)} m${avg ? ' (średnia)' : ' (przykład)'}, MW razem ${fmt(r.mass, 1)} kg:\n${lines.join('\n')}${r.warnings.length ? '\n⚠ ' + r.warnings.join('\n⚠ ') : ''}`;
 }
 
 // ---------- baza materiałów wybuchowych ----------
@@ -604,7 +659,7 @@ function loadProjectFromText(text) {
   if (!state.model) return status('Najpierw wczytaj model OBJ, a potem projekt.');
   $('offX').value = d.offset.x; $('offY').value = d.offset.y; $('offZ').value = d.offset.z;
   prevOffZ = d.offset.z;
-  for (const k of ['normal', 'profile']) state.types[k] = { ...defaultType(), ...d.types?.[k], template: d.types?.[k]?.template ?? defaultTemplate() };
+  for (const k of ['normal', 'profile']) state.types[k] = { ...defaultType(), ...d.types?.[k], template: (d.types?.[k]?.template ?? defaultTemplate()).map(migrateSeg) };
   state.editType = d.editType === 'profile' ? 'profile' : 'normal';
   if (Array.isArray(d.products) && d.products.length) { state.products = d.products; saveProducts(); }
   for (const [k, v] of Object.entries(d.pattern ?? {})) { const e = $(k === 'stagger' ? 'stagger' : k); if (e) { if (k === 'stagger') e.checked = v; else e.value = v; } }
@@ -835,8 +890,9 @@ $('xmlPlanId').addEventListener('input', () => { state.planId = $('xmlPlanId').v
 $('xmlNewPlan').onclick = () => { state.planId = newPlanId(); $('xmlPlanId').value = state.planId; status(`Nowy ID planu: ${state.planId}. Dane powiązane ze starym ID zostają przy starym planie.`); };
 $('ctrlCompare').onclick = () => showProbe(true);
 $('loadSample').onclick = () => loadSample();
-$('addCharge').onclick = () => { state.types[state.editType].template.push({ kind: 'charge', productId: state.products[0]?.id ?? '', length: 1 }); renderTemplate(); update(); };
-$('addDeck').onclick = () => { state.types[state.editType].template.push({ kind: 'deck', length: 0.3 }); renderTemplate(); update(); };
+$('addCharge').onclick = () => { state.types[state.editType].template.push({ kind: 'charge', productId: state.products[0]?.id ?? '', by: 'length', length: 1 }); renderTemplate(); update(); };
+$('addDeck').onclick = () => { state.types[state.editType].template.push({ kind: 'deck', by: 'length', length: 0.3 }); renderTemplate(); update(); };
+$('lenMode').addEventListener('change', () => { inputsToType(); update(); });
 $('copyTpl').onclick = () => {
   const other = state.editType === 'normal' ? 'profile' : 'normal';
   state.types[other].template = clone(state.types[state.editType].template);
