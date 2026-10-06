@@ -9,8 +9,18 @@ st.set_page_config(page_title="Projekt wierceń strzałowych", layout="wide")
 PAGE = Path(__file__).parent / "embed" / "index.html"
 
 # Mniej pustego miejsca wokół osadzonej aplikacji
+# Ramka wypełnia całą wysokość okna (bez czarnego pasa pod aplikacją)
 st.markdown(
-    "<style>.block-container{padding:0.5rem 0.5rem 0}header{display:none}</style>",
+    """<style>
+    header, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"]{display:none !important}
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"]{background:#14171c !important}
+    [data-testid="stMainBlockContainer"], .block-container{padding:0 !important; max-width:100% !important}
+    [data-testid="stVerticalBlock"]{gap:0 !important}
+    [data-testid="stElementContainer"]:has(iframe){
+        flex: 0 0 auto !important; height: 100vh !important; height: 100dvh !important; min-height: 420px;
+    }
+    [data-testid="stElementContainer"] iframe{ height: 100% !important; }
+    </style>""",
     unsafe_allow_html=True,
 )
 
