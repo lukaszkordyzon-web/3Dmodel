@@ -5,7 +5,8 @@ import { buildIredesXml, crc32 } from './iredes.js';
 import { pl2000ToLonLat } from './geo.js';
 import { buildProfile } from './profile.js';
 
-const P = DEFAULT_PRODUCTS;
+// produkty bez spęcznienia (gęstość docelowa = brak), dla testów klasycznych obliczeń; spęcznienie testuje PG niżej
+const P = DEFAULT_PRODUCTS.map((p) => (p.id === 'emu-bulk' ? { ...p, densityTarget: undefined } : p));
 const near = (a, c, e = 1e-6) => assert.ok(Math.abs(a - c) < e, `${a} != ${c}`);
 
 // --- ładowanie otworu ---
@@ -91,6 +92,32 @@ assert.equal(r.plugs, 1); assert.equal(r.airLength, 0);
 // przesypka (materiał obojętny) nie zlicza wkładek
 r = b.loadHole(8, [{ kind: 'charge', productId: 'anfo', by: 'rest' }, { kind: 'deck', plug: true, by: 'length', length: 1 }], { stemming: 2, diameterMm: 95, products: P });
 assert.equal(r.plugs, 0); assert.ok(r.segments.some((s) => s.kind === 'deck'));
+
+// --- emulsja: gęstość początkowa i docelowa ---
+const PG = [{ id: 'emu-g', name: 'Emulsja', kind: 'bulk', density: 1.2, densityTarget: 1.0, gassMin: 15 }, ...P];
+const lin10 = b.linearLoad(1.0, 95), lin12 = b.linearLoad(1.2, 95);
+// z czasem na spęcznienie: masa wg gęstości docelowej na długość końcową, po załadowaniu kolumna krótsza (5 z 6 m)
+r = b.loadHole(10, [{ kind: 'charge', productId: 'emu-g', by: 'rest' }], { stemming: 4, diameterMm: 95, products: PG });
+near(r.mass, lin10 * 6); near(r.segments[1].loadLen, 5); near(r.segments[1].rise, 1); near(r.maxRise, 1); assert.equal(r.segments[1].gassMin, 15);
+// bez czekania (przybitka od razu): masa wg gęstości początkowej, brak podniesienia
+r = b.loadHole(10, [{ kind: 'charge', productId: 'emu-g', by: 'rest' }], { stemming: 4, diameterMm: 95, products: PG, gassWait: false });
+near(r.mass, lin12 * 6); assert.equal(r.segments[1].rise, undefined); assert.equal(r.maxRise, 0);
+// ta sama masa 20 kg: końcowa długość kolumny zależy od gęstości docelowej
+r = b.loadHole(12, [{ kind: 'charge', productId: 'emu-g', by: 'mass', mass: 20 }, { kind: 'deck', by: 'rest' }], { stemming: 2, diameterMm: 95, products: PG });
+near(r.segments[1].to - r.segments[1].from, 20 / lin10); near(r.mass, 20);
+r = b.loadHole(12, [{ kind: 'charge', productId: 'emu-g', by: 'mass', mass: 20 }, { kind: 'deck', by: 'rest' }], { stemming: 2, diameterMm: 95, products: PG, gassWait: false });
+near(r.segments[1].to - r.segments[1].from, 20 / lin12);
+// korek: air deck pod korkiem liczony po spęcznieniu; w chwili zakładania korka dłuższy o podniesienie kolumny pod nim
+r = b.loadHole(12, [
+  { kind: 'charge', productId: 'anfo', by: 'length', length: 2 },
+  { kind: 'deck', material: 'air', plug: true, plugLen: 0.3, by: 'length', length: 1.5, anchor: 'depth', at: 5 },
+  { kind: 'charge', productId: 'emu-g', by: 'rest' },
+], { stemming: 2, diameterMm: 95, products: PG });
+const air = r.segments.find((s) => s.kind === 'air'), emuSeg = r.segments.find((s) => s.productId === 'emu-g');
+near(air.to - air.from, 1.2); near(air.airAtLoad, 1.2 + emuSeg.rise); assert.ok(emuSeg.rise > 0);
+// produkt bez gęstości docelowej zachowuje się jak dotąd
+r = b.loadHole(10, [{ kind: 'charge', productId: 'anfo', by: 'rest' }], { stemming: 2, diameterMm: 95, products: P });
+assert.equal(r.maxRise, 0); near(r.mass, b.linearLoad(0.85, 95) * 8);
 
 // --- długość otworu: do rzędnej dna albo stała ---
 const g1 = b.holeGeometry({ x: 0, y: 0, collarZ: 110 }, { floorZ: 100, subdrill: 1 });

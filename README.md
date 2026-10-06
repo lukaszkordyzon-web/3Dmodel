@@ -27,6 +27,10 @@ Po zmianach w `app.js`, `index.html` lub `style.css` przebuduj osadzany plik:
    - przesypka (materiał obojętny) albo **air deck** (pusty odcinek, opcjonalnie z wkładką otworową na górze odcinka,
      wkładki są zliczane): zadana długość i położenie (po kolei, na głębokości od wlotu albo na rzędnej), ewentualnie „reszta”,
      która dopasowuje się do zadanej masy MW. Ładunek tuż nad przesypką o ustalonym położeniu liczy się sam.
+   **Emulsja spęczniająca:** produkt sypki ma gęstość początkową (przy załadunku) i docelową (po spęcznieniu). Geometria szablonu to stan
+   końcowy. Przy „odczekaj na spęcznienie" masa liczy się z gęstości docelowej, a w chwili załadunku kolumna jest krótsza
+   (program pokazuje wysokość załadunku i podniesienie). Bez czekania (przybitka/korek od razu) masa wynika z gęstości początkowej.
+   Pod korkiem air deck ma w chwili zakładania korka długość końcową plus podniesienie kolumny pod nim.
    Szablon stosuje się do wszystkich otworów danego typu. Produkty z bazy MW (sypkie i nabojowane).
 5. **Profil**: tryb „Profil” → klik w otwór (przekrój przez ten otwór, w kierunku jego nachylenia) albo dwa punkty na terenie.
    Pokazuje teren, rzędne docelowe, otwory z ładunkiem i zabiór (pole przekroju nad rzędną docelową).

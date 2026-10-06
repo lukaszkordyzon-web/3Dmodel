@@ -43,7 +43,7 @@ world.add(overlay);
 const TYPE_NAME = { normal: 'Zwykłe', profile: 'Profilowe' };
 const TYPE_FIELDS = { diameter: 'diameter', target: 'targetZ', subdrill: 'subdrill', stemming: 'stemming', incl: 'incl', inclAz: 'inclAz' };
 const defaultTemplate = () => [{ kind: 'charge', productId: 'emu-bulk', by: 'rest' }];
-const defaultType = () => ({ diameter: 95, targetZ: 0, subdrill: 1.1, stemming: 2.4, incl: 0, inclAz: 0, lenMode: 'toe', fixedLength: 8, template: defaultTemplate() });
+const defaultType = () => ({ diameter: 95, targetZ: 0, subdrill: 1.1, stemming: 2.4, incl: 0, inclAz: 0, lenMode: 'toe', fixedLength: 8, gassWait: true, template: defaultTemplate() });
 
 // Zapis szablonu z wcześniejszych wersji (flex) -> obecny (by).
 function migrateSeg(seg) {
@@ -265,7 +265,7 @@ function update() {
     const g = blast.holeGeometry({ x: s.x, y: s.y, collarZ: s.z }, { floorZ: tp.targetZ - zs, subdrill: tp.subdrill, inclDeg: tp.incl, azimuthDeg: tp.inclAz, fixedLength: tp.lenMode === 'fixed' ? tp.fixedLength : null });
     if (g.benchHeight < 0.3) { state.skipped++; continue; }
     const cosI = Math.cos((tp.incl * Math.PI) / 180);
-    const c = blast.loadHole(g.length, tp.template, { stemming: tp.stemming, diameterMm: tp.diameter, products: state.products, depthAtElevation: (elev) => (s.z - (elev - zs)) / cosI });
+    const c = blast.loadHole(g.length, tp.template, { stemming: tp.stemming, diameterMm: tp.diameter, products: state.products, gassWait: tp.gassWait !== false, depthAtElevation: (elev) => (s.z - (elev - zs)) / cosI });
     s.hid ??= state.nextHid++; // zabezpieczenie dla projektów bez numerów
     const id = s.hid;
     const seq = state.holes.length + 1;
@@ -288,7 +288,7 @@ function update() {
 function typeToInputs() {
   const t = state.types[state.editType];
   for (const [id, k] of Object.entries(TYPE_FIELDS)) $(id).value = t[k];
-  $('lenMode').value = t.lenMode ?? 'toe'; $('fixedLen').value = t.fixedLength ?? 8;
+  $('lenMode').value = t.lenMode ?? 'toe'; $('fixedLen').value = t.fixedLength ?? 8; $('gassWait').checked = t.gassWait !== false;
   renderToeInfo();
   document.querySelectorAll('#typeTabs button').forEach((b) => b.classList.toggle('on', b.dataset.type === state.editType));
   renderTemplate();
@@ -297,7 +297,7 @@ function typeToInputs() {
 function inputsToType() {
   const t = state.types[state.editType];
   for (const [id, k] of Object.entries(TYPE_FIELDS)) t[k] = num(id);
-  t.lenMode = $('lenMode').value; t.fixedLength = num('fixedLen');
+  t.lenMode = $('lenMode').value; t.fixedLength = num('fixedLen'); t.gassWait = $('gassWait').checked;
   renderToeInfo();
 }
 
@@ -386,11 +386,13 @@ function typicalHole(type) {
 function renderTplInfo() {
   const t = state.types[state.editType];
   const { L, collarZ, cosI, avg } = typicalHole(state.editType), zs = zShift();
-  const r = blast.loadHole(L, t.template, { stemming: t.stemming, diameterMm: t.diameter, products: state.products, depthAtElevation: (elev) => (collarZ - (elev - zs)) / cosI });
+  const r = blast.loadHole(L, t.template, { stemming: t.stemming, diameterMm: t.diameter, products: state.products, gassWait: t.gassWait !== false, depthAtElevation: (elev) => (collarZ - (elev - zs)) / cosI });
   const name = { stemming: 'przybitka', deck: 'przesypka', air: 'air deck', plug: 'wkładka otworowa', charge: 'MW', empty: 'puste' };
   const lines = r.segments.filter((s) => s.to - s.from > 1e-6).map((s) => {
     const label = s.kind === 'charge' ? state.products.find((p) => p.id === s.productId)?.name.replace(/ \(przykład\)/, '') ?? 'MW' : name[s.kind];
-    return `${fmt(s.from, 2)}–${fmt(s.to, 2)} m  ${label}${s.mass ? `: ${fmt(s.mass, 1)} kg` : ''}`;
+    const rise = s.rise > 0 ? ` (załadunek do ${fmt(s.loadLen, 2)} m kolumny, po spęcznieniu +${fmt(s.rise, 2)} m${s.gassMin ? `, odczekaj ${s.gassMin} min` : ''})` : '';
+    const air = s.airAtLoad ? ` (przy zakładaniu korka ${fmt(s.airAtLoad, 2)} m)` : '';
+    return `${fmt(s.from, 2)}–${fmt(s.to, 2)} m  ${label}${s.mass ? `: ${fmt(s.mass, 1)} kg` : ''}${rise}${air}`;
   });
   $('tplInfo').textContent = `${TYPE_NAME[state.editType]}, otwór ${fmt(L, 1)} m${avg ? ' (średnia)' : ' (przykład)'}, MW razem ${fmt(r.mass, 1)} kg:\n${lines.join('\n')}${r.warnings.length ? '\n⚠ ' + r.warnings.join('\n⚠ ') : ''}`;
 }
@@ -422,7 +424,11 @@ function renderDb() {
     if (p.kind === 'cartridge') {
       d.append(field('Ø naboju [mm]', p.cartDia, '1', (v) => { p.cartDia = v; }), field('Długość [mm]', p.cartLen, '1', (v) => { p.cartLen = v; }), field('Masa [kg]', p.cartMass, '0.01', (v) => { p.cartMass = v; }));
     } else {
-      d.append(field('Gęstość [g/cm³]', p.density ?? 1, '0.01', (v) => { p.density = v; }, true));
+      d.append(
+        field('Gęstość początkowa [g/cm³]', p.density ?? 1, '0.01', (v) => { p.density = v; }, true),
+        field('Gęstość docelowa [g/cm³]', p.densityTarget ?? '', '0.01', (v) => { p.densityTarget = v > 0 ? v : undefined; }, true),
+        field('Czas spęcznienia [min]', p.gassMin ?? 0, '1', (v) => { p.gassMin = v; }, true),
+      );
     }
     const color = el('input'); color.type = 'color'; color.value = p.color ?? '#ff6b3d'; color.title = 'Kolor na widoku';
     color.oninput = () => { p.color = color.value; saveProducts(); update(); };
@@ -550,6 +556,7 @@ function renderStats() {
     ...Object.entries(kg).map(([id, m]) => [`  ${state.products.find((p) => p.id === id)?.name ?? id}`, `${fmt(m, 0)} kg`]),
     ...(state.holes.some((h) => h.plugs) ? [['Wkładki otworowe', `${state.holes.reduce((s, h) => s + h.plugs, 0)} szt.`]] : []),
     ...(state.holes.some((h) => h.airLength) ? [['Air deck (łączna długość)', `${fmt(state.holes.reduce((s, h) => s + h.airLength, 0), 1)} m`]] : []),
+    ...(state.holes.some((h) => h.maxRise > 0) ? [['Największe podniesienie kolumny emulsji', `${fmt(Math.max(...state.holes.map((h) => h.maxRise)), 2)} m`]] : []),
     ['Urabiana objętość (B×S×H)', `${fmt(s.volume, 0)} m³`],
     ['Jednostkowe zużycie MW', s.volume ? `${fmt(s.powderFactor, 2)} kg/m³` : '—'],
     ['Wiercenie jednostkowe', s.volume ? `${fmt(s.specificDrilling, 3)} m/m³` : '—'],
@@ -614,9 +621,9 @@ function exportCsv() {
       const len = fmt(s.to - s.from, 2).replace(',', '.');
       if (s.kind === 'stemming') return `przybitka ${len} m`;
       if (s.kind === 'deck') return `przesypka ${len} m`;
-      if (s.kind === 'air') return `air deck ${len} m`;
+      if (s.kind === 'air') return `air deck ${len} m${s.airAtLoad ? ` (przy korku ${fmt(s.airAtLoad, 2).replace(',', '.')} m)` : ''}`;
       if (s.kind === 'plug') return `wkladka otworowa ${len} m`;
-      return `${state.products.find((p) => p.id === s.productId)?.name ?? s.productId} ${len} m ${fmt(s.mass, 1).replace(',', '.')} kg`;
+      return `${state.products.find((p) => p.id === s.productId)?.name ?? s.productId} ${len} m ${fmt(s.mass, 1).replace(',', '.')} kg${s.rise > 0 ? ` (zaladunek do ${fmt(s.loadLen, 2).replace(',', '.')} m, wzrost ${fmt(s.rise, 2).replace(',', '.')} m)` : ''}`;
     }).join('; ').replaceAll(',', ' ');
     lines.push([state.planId, h.id, h.name, h.type === 'profile' ? 'profilowy' : 'zwykly', x, y, z, h.toe.x + ox, h.toe.y + oy, h.toe.z + zShift(), h.length, h.diameter, h.targetZ, h.subdrill, tp.incl, tp.inclAz, h.stemming, h.chargeLength, h.mass, desc, h.manual ? 'reczny' : 'siatka']
       .map((v) => (typeof v === 'number' ? +v.toFixed(3) : v)).join(','));

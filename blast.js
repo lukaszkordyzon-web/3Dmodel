@@ -108,11 +108,17 @@ export function summarize(holes, areaM2) {
 // Przesypka z anchor ma ustalone położenie. Ładunek tuż nad nią liczy się sam, żeby do niej sięgnąć.
 // „reszta” wypełnia pozostałe miejsce w sekcji: ładunek (masa MW się doblicza) albo przesypka (dopasowuje się do zadanej masy MW).
 // Dawny zapis (flex, length) jest nadal obsługiwany. depthAtElevation(m n.p.m.) -> głębokość wzdłuż otworu.
-export function loadHole(length, template, { stemming, diameterMm, products, depthAtElevation }) {
+// Geometria szablonu to stan KOŃCOWY (po spęcznieniu emulsji). Produkt sypki ma density (początkowa, przy załadunku)
+// i opcjonalnie densityTarget (docelowa, po spęcznieniu). gassWait = true: odczekujemy na spęcznienie przed przybitką i korkiem,
+// więc masa wynika z gęstości docelowej na długość końcową, a w chwili załadunku kolumna jest krótsza (loadLen, rise).
+// gassWait = false: przybitka/korek od razu, kolumna nie ma gdzie rosnąć, masa wg gęstości początkowej.
+export function loadHole(length, template, { stemming, diameterMm, products, depthAtElevation, gassWait = true }) {
   const warnings = [];
   const stem = Math.min(stemming, length);
   const prod = (id) => products.find((p) => p.id === id);
-  const lin = (p) => linearLoad(p.density, diameterMm);
+  const gassing = (p) => gassWait && p.kind !== 'cartridge' && p.densityTarget > 0 && p.densityTarget < p.density;
+  const rho = (p) => (gassWait && p.kind !== 'cartridge' && p.densityTarget > 0 ? p.densityTarget : p.density);
+  const lin = (p) => linearLoad(rho(p), diameterMm);
 
   const els = template.map((t) => {
     const e = { kind: t.kind, productId: t.productId, by: t.by ?? (t.flex ? 'rest' : 'length'), len: null, anchorDepth: null };
@@ -156,7 +162,7 @@ export function loadHole(length, template, { stemming, diameterMm, products, dep
 
   const segments = [{ kind: 'stemming', from: 0, to: stem }];
   const byProduct = {};
-  let mass = 0, chargeLength = 0, plugs = 0, airLength = 0;
+  let mass = 0, chargeLength = 0, plugs = 0, airLength = 0, maxRise = 0;
   // przesypka (materiał obojętny) albo air deck; wkładka otworowa podtrzymuje to, co leży nad odcinkiem powietrznym
   const pushDeck = (e, from, to) => {
     if (to - from <= 1e-9) return;
@@ -182,7 +188,14 @@ export function loadHole(length, template, { stemming, diameterMm, products, dep
       empty(from + eff, from + len);
     } else {
       m = lin(p) * len;
-      segments.push({ kind: 'charge', productId: p.id, from, to: from + len, mass: m });
+      const seg = { kind: 'charge', productId: p.id, from, to: from + len, mass: m };
+      if (gassing(p)) { // po załadowaniu kolumna jest krótsza i dopiero po spęcznieniu sięga do projektowanej góry
+        seg.loadLen = (len * p.densityTarget) / p.density;
+        seg.rise = len - seg.loadLen;
+        seg.gassMin = p.gassMin || 0;
+        maxRise = Math.max(maxRise, seg.rise);
+      }
+      segments.push(seg);
     }
     mass += m; chargeLength += eff;
     byProduct[p.id] = (byProduct[p.id] ?? 0) + m;
@@ -209,5 +222,10 @@ export function loadHole(length, template, { stemming, diameterMm, products, dep
     }
     empty(pos, part.b, last ? `Niewypełniony odcinek ${(part.b - pos).toFixed(2)} m przy dnie otworu.` : 'Odcinek bez ładunku nad przesypką.');
   });
-  return { segments, mass, chargeLength, stemming: stem, byProduct, plugs, airLength, warnings: [...new Set(warnings)] };
+  // Odcinek powietrzny nad kolumną, która jeszcze się podniesie: w chwili zakładania korka jest dłuższy o to podniesienie.
+  segments.forEach((s, i) => {
+    const below = segments[i + 1];
+    if (s.kind === 'air' && below?.kind === 'charge' && below.rise > 0) s.airAtLoad = s.to - s.from + below.rise;
+  });
+  return { segments, mass, chargeLength, stemming: stem, byProduct, plugs, airLength, maxRise, warnings: [...new Set(warnings)] };
 }
