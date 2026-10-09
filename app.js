@@ -1219,7 +1219,7 @@ async function loadSample(withDesign = true) {
   // Rzędy biegną wzdłuż ściany (kierunek 180°), pierwszy rząd jest najbliżej wolnej ściany; obrys kończy się na krawędzi skarpy.
   $('burden').value = 4; $('spacing').value = 4; $('rowAz').value = 180; $('edge').value = 0; $('stagger').checked = false;
   state.types.normal.diameter = state.types.profile.diameter = 102;
-  state.polygon = [at(0.45, 0.25), at(0.58, 0.25), at(0.58, 0.75), at(0.45, 0.75)];
+  state.polygon = [at(0.4833, 0.25), at(0.5833, 0.25), at(0.5833, 0.75), at(0.4833, 0.75)];
   state.closed = true;
   generate();
   // ostatni rząd (od strony pozostawianej ściany) jako otwory profilowe, lekko pochylone ku ścianie
