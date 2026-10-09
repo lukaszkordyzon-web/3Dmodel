@@ -46,6 +46,7 @@ export class BlastViz {
     while (blocks.length > 9000) { size *= 1.25; blocks = buildBlocks({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, size, holes }); }
     if (!blocks.length) return { ok: false, message: 'Brak bryły nad rzędną docelową w obrysie.' };
     this.blocks = blocks; this.size = size;
+    this.height = Math.max(...blocks.map((b) => b.z + b.sz / 2)) - ctx.floorZ; // największa wysokość bryły nad poziomem podstawy
     this.az = ctx.az ?? faceAzimuth({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, fallbackAz: ctx.fallbackAz ?? 0 });
     this.tFire = Float32Array.from(blocks, (b) => holes[b.hole].tFire ?? 0);
     this.tFireMax = Math.max(0, ...this.tFire);
@@ -98,7 +99,7 @@ export class BlastViz {
     this.bState = new Uint8Array(blocks.length).fill(255);
     this.ready = true;
     this.reset();
-    return { ok: true, blocks: blocks.length, size, frags: this.fragParent.length, whole: this.wholeCount, az: this.az };
+    return { ok: true, blocks: blocks.length, size, frags: this.fragParent.length, whole: this.wholeCount, az: this.az, height: this.height };
   }
 
   setMode(mode) {
