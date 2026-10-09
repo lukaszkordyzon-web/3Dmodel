@@ -43,7 +43,7 @@ export function generateGrid(poly, { burden, spacing, rowAzimuthDeg = 0, stagger
   return pts;
 }
 
-function distToEdge(x, y, poly) {
+export function distToEdge(x, y, poly) {
   let best = Infinity;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const ax = poly[j].x, ay = poly[j].y, bx = poly[i].x, by = poly[i].y;

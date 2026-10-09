@@ -34,7 +34,18 @@ Po zmianach w `app.js`, `index.html` lub `style.css` przebuduj osadzany plik:
    Szablon stosuje się do wszystkich otworów danego typu. Produkty z bazy MW (sypkie i nabojowane).
 5. **Profil**: tryb „Profil” → klik w otwór (przekrój przez ten otwór, w kierunku jego nachylenia) albo dwa punkty na terenie.
    Pokazuje teren, rzędne docelowe, otwory z ładunkiem i zabiór (pole przekroju nad rzędną docelową).
-6. **Zapis projektu** (JSON) i **eksport planu wierceń** w formacie IREDES XML (kolejność osi N, E, H, układ PL-2000).
+6. **Sieć i opóźnienia (nieelektryczna).** Tryb „Sieć”: klikaj kolejno otwory, aby je łączyć łącznikiem powierzchniowym (ms),
+   tryb „Punkt inicjacji” oznacza start. Czas odpalenia otworu = suma łączników od inicjacji + opóźnienie w otworze (parametr typu).
+   Jest też sieć automatyczna („rząd po rzędzie” albo „V” od środka). Program liczy czas każdego otworu, liczbę różnych opóźnień
+   i maksymalny ładunek w oknie (domyślnie 8 ms), rysuje wykres kg na opóźnienie i koloruje otwory wg czasu z odtwarzaniem.
+   Katalog łączników i opóźnień jest przykładowy, wpisz własny.
+7. **Fragmentacja (Kuz-Ram)** z współczynnikiem skały A wg Lilly (albo wpisanym) i rozkładem Rosina-Rammlera: X50, X80, wskaźnik
+   jednorodności, procent nadgabarytu. Wartości mają charakter szacunkowy i wymagają kalibracji.
+8. **Symulacja odstrzału (ilustracja):** bryła nad rzędną docelową w obrysie jako bloczki. Tryby: kolory wg czasu odpalenia,
+   rozpad bloczków na odłamki wg Kuz-Ram (bloczki większe niż rozmiar z rozkładu zostają jako nadgabaryt) i fizyka ruchu
+   (silnik Rapier, a gdy WebAssembly jest niedostępny, uproszczona balistyka). Pasek czasu na widoku 3D. Nie służy do wyznaczania
+   stref bezpieczeństwa, zasięgu odłamków ani drgań.
+9. **Zapis projektu** (JSON) i **eksport planu wierceń** w formacie IREDES XML (kolejność osi N, E, H, układ PL-2000).
    CSV z opisem ładunku.
 
 W trybie „Sprawdź punkt” można odczytać X, Y, Z z modelu i porównać z punktem kontrolnym.
@@ -51,10 +62,14 @@ do nich przypisane są wiercenie, MWD, ładowanie, sieć strzałowa i wyniki (dr
 stały dla projektu (zapisuje się w pliku projektu), a `HoleId` jest nadawany raz i nie jest przenumerowywany po usunięciu
 otworu; `HoleName` (np. `2.11`) to osobna, kolejna numeracja.
 
+## Silnik fizyki
+`vendor/rapier/rapier.mjs` (Rapier, Apache-2.0, ok. 4 MB z WebAssembly) ładuje się dopiero przy trybie „fizyka ruchu”. Kolejność prób:
+plik obok strony, potem CDN (jsDelivr), a gdy się nie uda, włącza się uproszczona balistyka bez zderzeń bloczków.
+
 ## Uwagi
 - Zakładamy układ Z w górę, metry (domyślny eksport Pix4D). Duże współrzędne bezwzględne (np. UTM) trzeba wyeksportować
   z offsetem i wpisać go w „Przesunięcie współrzędnych”, bo OBJ jest wczytywany w float32.
 - Wartości „orientacyjne wg średnicy” to reguły kciuka; projekt musi zatwierdzić uprawniona osoba.
 
 ## Testy
-    node test-blast.mjs && node test-modules.mjs
+    node test-blast.mjs && node test-modules.mjs && node test-network.mjs && node test-frag.mjs && node test-physics.mjs

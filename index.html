@@ -104,6 +104,7 @@
         <label>Przybitka (stała) [m]<input type="number" id="stemming" data-type value="2.4" min="0" step="0.1"></label>
         <label>Nachylenie od pionu [°]<input type="number" id="incl" data-type value="0" min="0" max="45" step="1"></label>
         <label>Azymut nachylenia [°]<input type="number" id="inclAz" data-type value="0" step="1"></label>
+        <label>Opóźnienie w otworze [ms]<input type="number" id="inhole" data-type value="500" min="0" step="1" list="inholeList"></label>
       </div>
       <p class="hint" id="toeInfo"></p>
       <label class="check"><input type="checkbox" id="showFloor" checked> Pokaż płaszczyznę rzędnej docelowej</label>
@@ -130,6 +131,77 @@
         </div>
         <p class="hint">Produkty przykładowe: wartości orientacyjne. Wpisz parametry z kart technicznych swoich produktów. Sypkie liczone z gęstości i średnicy otworu, nabojowane z liczby naboi.</p>
       </details>
+    </section>
+
+    <section id="netSec">
+      <h2>6. Sieć i opóźnienia (nieelektryczna)</h2>
+      <p class="hint">Czas odpalenia otworu = suma łączników od punktu inicjacji + opóźnienie w otworze (ustawiasz je w kroku 4). Tryb „Sieć”: klikaj kolejno otwory, aby je łączyć (A→B, potem B→C…). Ponowne kliknięcie istniejącego połączenia je usuwa.</p>
+      <div class="modes">
+        <label><input type="radio" name="mode" value="net"> Sieć: łącz otwory</label>
+        <label><input type="radio" name="mode" value="start"> Punkt inicjacji</label>
+      </div>
+      <div class="grid2">
+        <label>Łącznik powierzchniowy [ms]<input type="number" id="netConn" value="42" min="0" step="1" list="surfaceList"></label>
+        <label>Okno ładunku na opóźnienie [ms]<input type="number" id="delayWindow" value="8" min="0" step="1"></label>
+      </div>
+      <details>
+        <summary>Sieć automatyczna dla siatki</summary>
+        <div class="grid2">
+          <label>Układ<select id="autoPattern"><option value="rows">rząd po rzędzie</option><option value="V">V (od środka)</option></select></label>
+          <label>W rzędzie [ms]<input type="number" id="autoAlong" value="17" min="0" step="1" list="surfaceList"></label>
+          <label>Między rzędami [ms]<input type="number" id="autoBetween" value="42" min="0" step="1" list="surfaceList"></label>
+        </div>
+        <button id="autoNet" class="primary" style="width:100%;margin-top:8px">Utwórz sieć automatycznie</button>
+      </details>
+      <details>
+        <summary>Katalog łączników i opóźnień (przykłady, wpisz własne)</summary>
+        <label>Łączniki powierzchniowe [ms]<input type="text" id="surfaceCat" value="17, 25, 42, 67, 100"></label>
+        <label>Opóźnienia w otworze [ms]<input type="text" id="inholeCat" value="400, 500, 600"></label>
+        <datalist id="surfaceList"></datalist><datalist id="inholeList"></datalist>
+      </details>
+      <div class="row">
+        <button id="netClear" class="ghost">Usuń sieć</button>
+        <label style="flex:1">Kolory otworów<select id="colorMode"><option value="type">wg typu</option><option value="time">wg czasu odpalenia</option></select></label>
+      </div>
+      <dl id="netStats"></dl>
+      <canvas id="delayChart" height="130"></canvas>
+      <p class="hint" id="netWarn"></p>
+    </section>
+
+    <section id="simSec">
+      <h2>7. Symulacja odstrzału (ilustracja)</h2>
+      <label>Tryb
+        <select id="simMode">
+          <option value="off">wyłączona</option>
+          <option value="time">bloczki wg czasu odpalenia</option>
+          <option value="frag">rozpad bloczków (Kuz-Ram)</option>
+          <option value="phys">fizyka ruchu bloczków</option>
+        </select>
+      </label>
+      <p class="hint" id="simInfo">Włącz tryb i użyj paska czasu na widoku 3D.</p>
+      <div class="grid2">
+        <label>Rozmiar bloczka [m] (0 = auto)<input type="number" id="blkSize" value="0" min="0" step="0.1"></label>
+        <label>Maks. liczba bloczków<input type="number" id="maxBlocks" value="2500" min="200" step="100"></label>
+        <label>Kierunek ku ścianie [°]<input type="number" id="simAz" placeholder="auto" step="1"></label>
+        <label>Siła rozrzutu<input type="number" id="simPower" value="1" min="0.1" max="4" step="0.1"></label>
+      </div>
+      <details open>
+        <summary>Skała i fragmentacja (Kuz-Ram)</summary>
+        <div class="grid2">
+          <label>Opis masywu<select id="rmd"><option value="powdery">sypki / kruchy</option><option value="jointed" selected>pionowo spękany</option><option value="massive">masywny</option></select></label>
+          <label>Odstęp spękań<select id="jps"><option value="close">gęste (&lt;0,1 m)</option><option value="medium" selected>średnie (0,1–1 m)</option><option value="wide">rzadkie (&gt;1 m)</option></select></label>
+          <label>Kąt spękań<select id="jpa"><option value="out">w stronę ociosu</option><option value="perpendicular" selected>prostopadle do ociosu</option><option value="into">w głąb masywu</option></select></label>
+          <label>Gęstość skały [t/m³]<input type="number" id="rockRho" value="2.7" min="1.5" max="4" step="0.05"></label>
+          <label>Moduł Younga E [GPa]<input type="number" id="rockE" value="60" min="1" step="1"></label>
+          <label>Wytrzymałość UCS [MPa]<input type="number" id="rockUcs" value="120" min="1" step="5"></label>
+          <label>Współczynnik A (puste = z Lilly)<input type="number" id="rockA" placeholder="auto" step="0.1"></label>
+          <label>Dokładność wiercenia σ [m]<input type="number" id="drillSd" value="0.2" min="0" step="0.05"></label>
+          <label>Nadgabaryt powyżej [cm]<input type="number" id="oversize" value="100" min="10" step="5"></label>
+        </div>
+        <dl id="fragStats"></dl>
+        <canvas id="fragChart" height="150"></canvas>
+      </details>
+      <p class="warn">Ilustracja poglądowa na podstawie metod empirycznych (Kuz-Ram, Lilly) i uproszczonej fizyki. Nie służy do wyznaczania stref bezpieczeństwa, zasięgu odłamków ani drgań. Wymaga kalibracji na danych z kopalni.</p>
     </section>
 
     <section>
@@ -179,7 +251,7 @@
     <section>
       <h2>Otwory</h2>
       <div class="tablewrap"><table id="holes"><thead>
-        <tr><th>Nr</th><th>Typ</th><th>E (X)</th><th>N (Y)</th><th>Z</th><th>L [m]</th><th>kg</th></tr>
+        <tr><th>Nr</th><th>Typ</th><th>E (X)</th><th>N (Y)</th><th>Z</th><th>L [m]</th><th>kg</th><th>t [ms]</th></tr>
       </thead><tbody></tbody></table></div>
     </section>
 
@@ -188,6 +260,15 @@
 
   <main id="view">
     <canvas id="canvas"></canvas>
+    <div id="timeline" hidden>
+      <button id="tlPlay" title="Odtwórz / wstrzymaj">▶</button>
+      <button id="tlReset" class="ghost" title="Od początku">⟲</button>
+      <input type="range" id="tlSlider" min="0" max="1000" value="0" step="1" aria-label="Czas">
+      <span id="tlTime">0 ms</span>
+      <select id="tlSpeed" aria-label="Szybkość">
+        <option value="0.05">0,05×</option><option value="0.1">0,1×</option><option value="0.25" selected>0,25×</option><option value="0.5">0,5×</option><option value="1">1× (czas rzeczywisty)</option>
+      </select>
+    </div>
     <div id="profile" hidden>
       <div class="phead">
         <strong>Profil</strong>

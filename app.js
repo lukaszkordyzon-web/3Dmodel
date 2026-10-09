@@ -7,6 +7,9 @@ import { DEFAULT_PRODUCTS, newProductId } from './products.js';
 import { buildIredesXml, newPlanId } from './iredes.js';
 import { pl2000ToLonLat } from './geo.js';
 import { buildProfile, drawProfile } from './profile.js';
+import { computeTiming, maxChargeInWindow, groupByTime, autoNetwork } from './network.js';
+import { lillyA, kuzRam, retained, passing } from './fragmentation.js';
+import { BlastViz, timeColor } from './sim.js';
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => parseFloat($(id).value) || 0;
@@ -41,9 +44,9 @@ world.add(overlay);
 
 // ---------- stan ----------
 const TYPE_NAME = { normal: 'Zwykłe', profile: 'Profilowe' };
-const TYPE_FIELDS = { diameter: 'diameter', target: 'targetZ', subdrill: 'subdrill', stemming: 'stemming', incl: 'incl', inclAz: 'inclAz' };
+const TYPE_FIELDS = { diameter: 'diameter', target: 'targetZ', subdrill: 'subdrill', stemming: 'stemming', incl: 'incl', inclAz: 'inclAz', inhole: 'inholeMs' };
 const defaultTemplate = () => [{ kind: 'charge', productId: 'emu-bulk', by: 'rest' }];
-const defaultType = () => ({ diameter: 95, targetZ: 0, subdrill: 1.1, stemming: 2.4, incl: 0, inclAz: 0, lenMode: 'toe', fixedLength: 8, gassWait: true, template: defaultTemplate() });
+const defaultType = () => ({ diameter: 95, targetZ: 0, subdrill: 1.1, stemming: 2.4, incl: 0, inclAz: 0, inholeMs: 500, lenMode: 'toe', fixedLength: 8, gassWait: true, template: defaultTemplate() });
 
 // Zapis szablonu z wcześniejszych wersji (flex) -> obecny (by).
 function migrateSeg(seg) {
@@ -85,6 +88,10 @@ const state = {
   profA: null,
   planId: newPlanId(),          // stały identyfikator planu: klucz do danych z wiercenia, ładowania i MWD
   nextHid: 1,                   // licznik trwałych numerów otworów (HoleId), nigdy nie przenumerowywany
+  net: { starts: [], links: [], pending: null }, // sieć strzałowa: punkty inicjacji i łączniki (HoleId)
+  timing: null, tMinFire: 0, frag: null,
+  viz: new BlastViz(scene),     // symulacja: bloczki, rozpad, fizyka
+  colorMode: 'type',
 };
 
 function resize() {
@@ -96,7 +103,7 @@ function resize() {
   if (state.profile) renderProfile();
 }
 new ResizeObserver(resize).observe($('view'));
-renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+renderer.setAnimationLoop(() => { controls.update(); frame(); renderer.render(scene, camera); });
 
 const status = (t) => { $('status').textContent = t; };
 const zShift = () => state.center.z + num('offZ'); // lokalne Z -> rzeczywista rzędna
@@ -152,6 +159,7 @@ async function loadFiles(fileList) {
   state.height = buildHeightField(obj);
   state.markerSize = THREE.MathUtils.clamp(Math.max(state.size.x, state.size.y) / 250, 0.15, 3);
   resetDesign();
+  $('simMode').value = 'off'; state.viz.clear(); state.viz.mode = 'off'; clock.t = 0; clock.playing = false;
   state.probe = null;
   $('probeOut').textContent = 'Kliknij punkt na modelu, aby zobaczyć jego X, Y, Z.';
   $('ctrlOut').textContent = '';
@@ -235,6 +243,7 @@ function resetDesign() {
   state.polygon = []; state.closed = false; state.grid = []; state.manual = [];
   state.profile = null; state.profA = null;
   state.planId = newPlanId(); state.nextHid = 1;
+  state.net = { starts: [], links: [], pending: null };
   $('xmlPlanId').value = state.planId;
 }
 
@@ -268,20 +277,27 @@ function update() {
     const c = blast.loadHole(g.length, tp.template, { stemming: tp.stemming, diameterMm: tp.diameter, products: state.products, gassWait: tp.gassWait !== false, depthAtElevation: (elev) => (s.z - (elev - zs)) / cosI });
     s.hid ??= state.nextHid++; // zabezpieczenie dla projektów bez numerów
     const id = s.hid;
+    const chargeSegs = c.segments.filter((x) => x.kind === 'charge');
+    const bcl = chargeSegs.length ? chargeSegs.at(-1).to - chargeSegs.at(-1).from : 0; // ładunek denny (najgłębszy)
     const seq = state.holes.length + 1;
     const manual = state.manual.includes(s);
     state.holes.push({
       ref: s, id, name: `${manual ? 0 : s.row + 1}.${seq}`, type, manual,
       x: s.x, y: s.y, z: s.z, ...g, ...c, diameter: tp.diameter, targetZ: tp.targetZ, subdrill: tp.subdrill,
-      volume: pat.burden * pat.spacing * g.benchHeight,
+      volume: pat.burden * pat.spacing * g.benchHeight, inholeMs: tp.inholeMs ?? 500, bcl,
     });
   }
+  updateTiming();
+  updateFrag();
   drawOverlay();
   renderStats();
   renderTable();
   renderTplInfo();
+  renderNetStats();
   refreshProfileList();
+  refreshTimeline();
   if (state.profile) renderProfile();
+  queueViz();
 }
 
 // ---------- typ otworu: parametry w panelu ----------
@@ -430,6 +446,7 @@ function renderDb() {
         field('Czas spęcznienia [min]', p.gassMin ?? 0, '1', (v) => { p.gassMin = v; }, true),
       );
     }
+    d.append(field('RWS (ANFO = 100)', p.rws ?? 100, '1', (v) => { p.rws = v; }, true));
     const color = el('input'); color.type = 'color'; color.value = p.color ?? '#ff6b3d'; color.title = 'Kolor na widoku';
     color.oninput = () => { p.color = color.value; saveProducts(); update(); };
     const del = el('button', 'ghost', '✕'); del.type = 'button'; del.title = 'Usuń produkt';
@@ -530,17 +547,45 @@ function drawOverlay() {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
-  const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true }));
+  // w trybach symulacji kolumny ładunków są przyciemnione, żeby nie zasłaniały bloczków
+  const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true, opacity: simActive() ? 0.22 : 1 }));
   lines.renderOrder = 3; overlay.add(lines);
 
   const markers = new THREE.InstancedMesh(new THREE.SphereGeometry(ms * 0.6, 10, 8), new THREE.MeshBasicMaterial({ depthTest: false }), n);
   const m4 = new THREE.Matrix4(), color = new THREE.Color();
   state.holes.forEach((h, i) => {
     markers.setMatrixAt(i, m4.setPosition(h.x, h.y, h.z + lift));
-    markers.setColorAt(i, color.set(h.type === 'profile' ? 0x7bd88f : 0x2ec4f1));
+    markers.setColorAt(i, holeColor(h, color));
   });
   markers.renderOrder = 4; overlay.add(markers);
   state.markers = markers;
+
+  // sieć strzałowa: łączniki (ze strzałkami), punkty inicjacji, otwór wybrany do łączenia
+  const byId = new Map(state.holes.map((h) => [h.id, h]));
+  const lp = [];
+  for (const l of state.net.links) {
+    const a = byId.get(l.from), b = byId.get(l.to);
+    if (!a || !b) continue;
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+    const z0 = a.z + lift * 1.6, z1 = b.z + lift * 1.6, tx = a.x + dx * 0.62, ty = a.y + dy * 0.62, tz = z0 + (z1 - z0) * 0.62, w = ms * 1.4;
+    lp.push(a.x, a.y, z0, b.x, b.y, z1);
+    for (const sgn of [1, -1]) { // grot strzałki
+      const c = Math.cos(0.5), sn = Math.sin(0.5) * sgn;
+      lp.push(tx, ty, tz, tx - w * (ux * c - uy * sn), ty - w * (uy * c + ux * sn), tz);
+    }
+  }
+  if (lp.length) {
+    const ng = new THREE.BufferGeometry();
+    ng.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lp), 3));
+    const nl = new THREE.LineSegments(ng, new THREE.LineBasicMaterial({ color: 0xff9f1c, depthTest: false }));
+    nl.renderOrder = 6; overlay.add(nl);
+  }
+  const ring = (h, color, k) => {
+    const mk = new THREE.Mesh(new THREE.SphereGeometry(ms * k, 12, 10), new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.85 }));
+    mk.position.set(h.x, h.y, h.z + lift); mk.renderOrder = 7; overlay.add(mk);
+  };
+  for (const id of state.net.starts) { const h = byId.get(id); if (h) ring(h, 0xffd400, 1.15); }
+  if (state.net.pending != null) { const h = byId.get(state.net.pending); if (h) ring(h, 0xffffff, 1.0); }
 }
 
 // ---------- podsumowanie i tabela ----------
@@ -560,6 +605,8 @@ function renderStats() {
     ['Urabiana objętość (B×S×H)', `${fmt(s.volume, 0)} m³`],
     ['Jednostkowe zużycie MW', s.volume ? `${fmt(s.powderFactor, 2)} kg/m³` : '—'],
     ['Wiercenie jednostkowe', s.volume ? `${fmt(s.specificDrilling, 3)} m/m³` : '—'],
+    ...(state.netSummary ? [['Czas całego strzału', `${fmt(state.netSummary.span, 0)} ms`], [`Maks. ładunek w oknie ${state.netSummary.window} ms`, `${fmt(state.netSummary.maxQ, 0)} kg`]] : []),
+    ...(state.frag ? [['Fragmentacja X50 / nadgabaryt', `${fmt(state.frag.x50, 0)} cm / ${fmt(state.frag.oversizePct, 1)}%`]] : []),
     ['Powierzchnia obrysu', s.areaM2 ? `${fmt(s.areaM2, 0)} m²` : '—'],
   ];
   const warned = state.holes.filter((h) => h.warnings.length).length;
@@ -580,7 +627,7 @@ function renderTable() {
   body.replaceChildren(...state.holes.slice(0, 500).map((h) => {
     const [x, y, z] = realXYZ(h);
     const tr = document.createElement('tr');
-    for (const v of [h.name, h.type === 'profile' ? 'P' : 'Z', fmt(x, 2), fmt(y, 2), fmt(z, 2), fmt(h.length), fmt(h.mass, 0)]) {
+    for (const v of [h.name, h.type === 'profile' ? 'P' : 'Z', fmt(x, 2), fmt(y, 2), fmt(z, 2), fmt(h.length), fmt(h.mass, 0), h.tFire == null ? '—' : fmt(h.tFire, 0)]) {
       const td = document.createElement('td'); td.textContent = v; tr.append(td);
     }
     return tr;
@@ -611,7 +658,7 @@ async function copyData() {
 
 function exportCsv() {
   if (!state.holes.length) return status('Brak otworów do eksportu.');
-  const head = ['PlanId', 'HoleId', 'Nazwa', 'Typ', 'E_collar', 'N_collar', 'Z_collar', 'E_toe', 'N_toe', 'Z_toe', 'Dlugosc_m', 'Srednica_mm', 'Rzedna_docelowa', 'Przewiert_m', 'Nachylenie_deg', 'Azymut_deg', 'Przybitka_m', 'Dlugosc_ladunku_m', 'MW_kg', 'Ladunek_opis', 'Zrodlo'];
+  const head = ['PlanId', 'HoleId', 'Nazwa', 'Typ', 'E_collar', 'N_collar', 'Z_collar', 'E_toe', 'N_toe', 'Z_toe', 'Dlugosc_m', 'Srednica_mm', 'Rzedna_docelowa', 'Przewiert_m', 'Nachylenie_deg', 'Azymut_deg', 'Przybitka_m', 'Dlugosc_ladunku_m', 'MW_kg', 'Ladunek_opis', 'Zrodlo', 'Opoznienie_w_otworze_ms', 'Czas_odpalenia_ms', 'Sygnal_od_HoleId'];
   const ox = state.center.x + num('offX'), oy = state.center.y + num('offY');
   const lines = [head.join(',')];
   for (const h of state.holes) {
@@ -625,7 +672,7 @@ function exportCsv() {
       if (s.kind === 'plug') return `wkladka otworowa ${len} m`;
       return `${state.products.find((p) => p.id === s.productId)?.name ?? s.productId} ${len} m ${fmt(s.mass, 1).replace(',', '.')} kg${s.rise > 0 ? ` (zaladunek do ${fmt(s.loadLen, 2).replace(',', '.')} m, wzrost ${fmt(s.rise, 2).replace(',', '.')} m)` : ''}`;
     }).join('; ').replaceAll(',', ' ');
-    lines.push([state.planId, h.id, h.name, h.type === 'profile' ? 'profilowy' : 'zwykly', x, y, z, h.toe.x + ox, h.toe.y + oy, h.toe.z + zShift(), h.length, h.diameter, h.targetZ, h.subdrill, tp.incl, tp.inclAz, h.stemming, h.chargeLength, h.mass, desc, h.manual ? 'reczny' : 'siatka']
+    lines.push([state.planId, h.id, h.name, h.type === 'profile' ? 'profilowy' : 'zwykly', x, y, z, h.toe.x + ox, h.toe.y + oy, h.toe.z + zShift(), h.length, h.diameter, h.targetZ, h.subdrill, tp.incl, tp.inclAz, h.stemming, h.chargeLength, h.mass, desc, h.manual ? 'reczny' : 'siatka', h.inholeMs, h.tFire ?? '', state.net.links.find((l) => l.to === h.id)?.from ?? (state.net.starts.includes(h.id) ? 'start' : '')]
       .map((v) => (typeof v === 'number' ? +v.toFixed(3) : v)).join(','));
   }
   showData('Eksport CSV (E = X, N = Y, układ jak w modelu z offsetem)', lines.join('\n'), { filename: 'otwory_strzalowe.csv', mime: 'text/csv' });
@@ -660,6 +707,8 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize'];
+
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
   return JSON.stringify({
@@ -667,6 +716,7 @@ function projectToJson() {
     offset: { x: num('offX'), y: num('offY'), z: num('offZ') },
     modelCenter: realOf({ x: 0, y: 0, z: 0 }),
     pattern: readPattern(), types: state.types, editType: state.editType, products: state.products,
+    net: { starts: state.net.starts, links: state.net.links }, ui: Object.fromEntries(UI_IDS.map((k) => [k, $(k).value])),
     polygon: state.polygon.map(R), closed: state.closed, grid: state.grid.map(R), manual: state.manual.map(R),
     xml: Object.fromEntries(['xmlName', 'xmlProject', 'xmlCrs', 'xmlComment', 'xmlTypeNormal', 'xmlTypeProfile'].map((k) => [k, $(k).value])),
   }, null, 2);
@@ -689,6 +739,9 @@ function loadProjectFromText(text) {
   state.grid = (d.grid ?? []).map(localOf);
   state.manual = (d.manual ?? []).map(localOf);
   state.profile = null; state.profA = null;
+  state.net = { starts: d.net?.starts ?? [], links: d.net?.links ?? [], pending: null };
+  for (const [k, v] of Object.entries(d.ui ?? {})) if ($(k) && v != null) $(k).value = v;
+  state.colorMode = $('colorMode').value; refreshCatalogs();
   state.planId = d.planId || newPlanId();
   state.nextHid = Math.max(d.nextHid ?? 1, 1 + Math.max(0, ...[...state.grid, ...state.manual].map((s) => s.hid ?? 0)));
   $('xmlPlanId').value = state.planId;
@@ -740,6 +793,280 @@ function closeProfile() {
   update();
 }
 
+
+// ---------- sieć strzałowa: czasy odpalenia ----------
+function updateTiming() {
+  const ids = state.holes.map((h) => h.id);
+  const byId = new Map(state.holes.map((h) => [h.id, h]));
+  state.timing = computeTiming(ids, state.net.links, state.net.starts, (id) => byId.get(id).inholeMs);
+  for (const h of state.holes) h.tFire = state.timing.time.get(h.id) ?? null;
+  const times = [...state.timing.time.values()];
+  state.tMinFire = times.length ? Math.min(...times) : 0;
+  state.netSummary = null;
+  if (times.length) {
+    const windowMs = num('delayWindow') || 0;
+    const items = state.holes.filter((h) => h.tFire != null).map((h) => ({ t: h.tFire, mass: h.mass }));
+    const mq = maxChargeInWindow(items, windowMs);
+    state.netSummary = { span: state.timing.totalMs - state.tMinFire, maxQ: mq.mass, at: mq.at, window: windowMs, groups: groupByTime(items) };
+  }
+}
+
+function prepCanvas(cv, hPx) {
+  const w = cv.clientWidth;
+  if (!w) return null;
+  const dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
+  cv.style.height = hPx + 'px'; cv.width = Math.round(w * dpr); cv.height = Math.round(hPx * dpr);
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#14171c'; g.fillRect(0, 0, w, hPx);
+  return { g, w, h: hPx };
+}
+
+function renderNetStats() {
+  const net = state.net, t = state.timing, ns = state.netSummary;
+  const rows = [
+    ['Połączenia / punkty inicjacji', `${net.links.length} / ${net.starts.length}`],
+    ['Otwory z czasem odpalenia', `${t ? t.time.size : 0} z ${state.holes.length}`],
+  ];
+  if (ns) rows.push(['Czas od pierwszego do ostatniego', `${fmt(ns.span, 0)} ms`], ['Liczba różnych opóźnień', String(ns.groups.length)], [`Maks. ładunek w oknie ${ns.window} ms`, `${fmt(ns.maxQ, 1)} kg (od ${fmt(ns.at, 0)} ms)`]);
+  $('netStats').replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
+  const bad = t ? t.unreachable.length : 0;
+  $('netWarn').textContent = !state.holes.length ? '' : !net.starts.length ? 'Ustaw punkt inicjacji (tryb „Punkt inicjacji”) i połącz otwory, albo użyj sieci automatycznej.' : bad ? `⚠ ${bad} otworów nie ma drogi sygnału od punktu inicjacji.` : '';
+  drawDelayChart();
+}
+
+function drawDelayChart() {
+  const c = prepCanvas($('delayChart'), 130);
+  if (!c) return;
+  const { g, w, h } = c, ns = state.netSummary;
+  g.font = '11px system-ui'; g.fillStyle = '#8b95a3';
+  if (!ns) { g.fillText('Brak czasów odpalenia. Połącz otwory i ustaw punkt inicjacji.', 10, 24); return; }
+  const groups = ns.groups, mL = 44, mR = 8, mT = 8, mB = 22;
+  const t0 = groups[0].t, t1 = groups.at(-1).t, span = Math.max(t1 - t0, 1), qMax = Math.max(...groups.map((x) => x.mass)) * 1.1;
+  const X = (t) => mL + ((t - t0) / span) * (w - mL - mR - 6) + 3, Y = (q) => h - mB - (q / qMax) * (h - mT - mB);
+  g.strokeStyle = '#2c333d'; g.textAlign = 'right';
+  for (let k = 0; k <= 3; k++) { const q = (qMax * k) / 3; g.beginPath(); g.moveTo(mL, Y(q)); g.lineTo(w - mR, Y(q)); g.stroke(); g.fillText(fmt(q, 0), mL - 4, Y(q) + 4); }
+  g.textAlign = 'center';
+  for (let k = 0; k <= 4; k++) g.fillText(fmt(t0 + (span * k) / 4, 0), mL + 3 + ((w - mL - mR - 6) * k) / 4, h - 6);
+  const bw = Math.max(2, Math.min(10, (w - mL - mR) / Math.max(groups.length, 1) - 1));
+  for (const gr of groups) {
+    const inMax = gr.t >= ns.at && gr.t <= ns.at + ns.window;
+    g.fillStyle = inMax ? '#ff9f1c' : '#2ec4f1';
+    g.fillRect(X(gr.t) - bw / 2, Y(gr.mass), bw, h - mB - Y(gr.mass));
+  }
+  g.fillStyle = '#8b95a3'; g.textAlign = 'left'; g.fillText('kg na opóźnienie / czas [ms]', mL + 4, 14);
+}
+
+// ---------- kolory otworów i odtwarzanie ----------
+const clock = { t: 0, playing: false };
+const simActive = () => state.viz.ready && state.viz.mode !== 'off';
+const tMaxNow = () => (simActive() ? state.viz.tMax : (state.timing?.totalMs ?? 0) + 600);
+
+function holeColor(h, c) {
+  if (state.colorMode === 'time' || simActive()) {
+    if (h.tFire == null) return c.setRGB(0.4, 0.4, 0.42);
+    if ((clock.playing || clock.t > 0) && h.tFire <= clock.t) { // odpalony: rozbłysk, potem „wypalony”
+      const fl = Math.max(0, 1 - (clock.t - h.tFire) / 250);
+      return c.setRGB(0.3 + 0.7 * fl, 0.16 + 0.64 * fl, 0.1 + 0.4 * fl);
+    }
+    const total = state.timing?.totalMs ?? 0;
+    return timeColor(total > state.tMinFire ? (h.tFire - state.tMinFire) / (total - state.tMinFire) : 0, c);
+  }
+  return c.set(h.type === 'profile' ? 0x7bd88f : 0x2ec4f1);
+}
+
+function applyHoleColors() {
+  if (!state.markers) return;
+  const c = new THREE.Color();
+  state.holes.forEach((h, i) => state.markers.setColorAt(i, holeColor(h, c)));
+  if (state.markers.instanceColor) state.markers.instanceColor.needsUpdate = true;
+}
+
+function refreshTimeline() {
+  const show = simActive() || (state.colorMode === 'time' && state.timing?.time.size > 0);
+  $('timeline').hidden = !show;
+  $('tlSlider').disabled = simActive() && state.viz.mode === 'phys';
+  updateTimelineUi();
+}
+
+function updateTimelineUi() {
+  const t = simActive() ? state.viz.t : clock.t, tm = Math.max(tMaxNow(), 1);
+  $('tlSlider').value = Math.round((t / tm) * 1000);
+  $('tlTime').textContent = `${fmt(t, 0)} ms`;
+  $('tlPlay').textContent = (simActive() ? state.viz.playing : clock.playing) ? '⏸' : '▶';
+}
+
+let lastFrame = performance.now();
+function frame() {
+  const now = performance.now(), dt = Math.min((now - lastFrame) / 1000, 0.1);
+  lastFrame = now;
+  let changed = false;
+  if (simActive()) {
+    state.viz.speed = parseFloat($('tlSpeed').value);
+    changed = state.viz.tick(dt);
+    clock.t = state.viz.t; clock.playing = state.viz.playing;
+  } else if (clock.playing) {
+    clock.t = Math.min(clock.t + dt * 1000 * parseFloat($('tlSpeed').value), tMaxNow());
+    if (clock.t >= tMaxNow()) clock.playing = false;
+    changed = true;
+  }
+  if (changed) { applyHoleColors(); updateTimelineUi(); }
+}
+
+// ---------- fragmentacja (Kuz-Ram) ----------
+function updateFrag() {
+  state.frag = null;
+  const hs = state.holes.filter((h) => h.type === 'normal' && h.mass > 0 && h.benchHeight > 0);
+  const out = $('fragStats');
+  if (!hs.length) { out.replaceChildren(); drawFragChart(); return; }
+  const mean = (f) => hs.reduce((s, h) => s + f(h), 0) / hs.length;
+  const pat = readPattern(), tp = state.types.normal;
+  const H = mean((h) => h.benchHeight), Q = mean((h) => h.mass), L = mean((h) => h.chargeLength), BCL = mean((h) => h.bcl);
+  const A = $('rockA').value !== '' ? num('rockA') : lillyA({ rmd: $('rmd').value, jps: $('jps').value, jpa: $('jpa').value, density: num('rockRho'), youngGpa: num('rockE'), ucsMpa: num('rockUcs') });
+  let mw = 0, mr = 0;
+  for (const h of hs) for (const [id, m] of Object.entries(h.byProduct)) { mw += m; mr += m * (state.products.find((p) => p.id === id)?.rws ?? 100); }
+  const rws = mw ? mr / mw : 100;
+  if (!(A > 0) || !(L > 0) || !(H > 0)) { out.replaceChildren(); drawFragChart(); return; }
+  const r = kuzRam({ A, Q, V0: pat.burden * pat.spacing * H, rws, B: pat.burden, S: pat.spacing, D: tp.diameter, W: num('drillSd'), L, BCL, CCL: Math.max(0, L - BCL), H });
+  const xo = num('oversize') || 100;
+  state.frag = { ...r, A, rws, xo, oversizePct: retained(xo, r.x50, r.n) * 100, x80: r.xc * Math.log(5) ** (1 / r.n), pf: Q / (pat.burden * pat.spacing * H), n: r.n };
+  const f = state.frag;
+  const rows = [
+    ['Współczynnik skały A', fmt(A, 1)], ['Średnia siła MW (ANFO = 100)', fmt(rws, 0)], ['Zużycie jednostkowe', `${fmt(f.pf, 2)} kg/m³`],
+    ['X50 (rozmiar mediany)', `${fmt(f.x50, 0)} cm`], ['X80', `${fmt(f.x80, 0)} cm`], ['Wskaźnik jednorodności n', fmt(f.n, 2)],
+    [`Nadgabaryt > ${fmt(xo, 0)} cm`, `${fmt(f.oversizePct, 1)} %`],
+  ];
+  out.replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
+  drawFragChart();
+}
+
+function drawFragChart() {
+  const c = prepCanvas($('fragChart'), 150);
+  if (!c) return;
+  const { g, w, h } = c, f = state.frag;
+  g.font = '11px system-ui'; g.fillStyle = '#8b95a3';
+  if (!f) { g.fillText('Brak danych: wygeneruj otwory z ładunkiem.', 10, 24); return; }
+  const mL = 36, mR = 10, mT = 10, mB = 22, lo = Math.log10(1), hi = Math.log10(500);
+  const X = (x) => mL + ((Math.log10(Math.max(x, 1)) - lo) / (hi - lo)) * (w - mL - mR), Y = (p) => h - mB - p * (h - mT - mB);
+  g.strokeStyle = '#2c333d'; g.textAlign = 'right';
+  for (let k = 0; k <= 4; k++) { g.beginPath(); g.moveTo(mL, Y(k / 4)); g.lineTo(w - mR, Y(k / 4)); g.stroke(); g.fillText(`${k * 25}%`, mL - 4, Y(k / 4) + 4); }
+  g.textAlign = 'center';
+  for (const x of [1, 10, 100]) { g.beginPath(); g.moveTo(X(x), mT); g.lineTo(X(x), h - mB); g.stroke(); g.fillText(`${x} cm`, X(x), h - 6); }
+  g.strokeStyle = '#2ec4f1'; g.lineWidth = 2; g.beginPath();
+  for (let i = 0; i <= 120; i++) { const x = 10 ** (lo + ((hi - lo) * i) / 120), p = passing(x, f.x50, f.n); i ? g.lineTo(X(x), Y(p)) : g.moveTo(X(x), Y(p)); }
+  g.stroke(); g.lineWidth = 1;
+  g.setLineDash([5, 4]); g.strokeStyle = '#ff9f1c'; g.beginPath(); g.moveTo(X(f.xo), mT); g.lineTo(X(f.xo), h - mB); g.stroke(); g.setLineDash([]);
+  g.fillStyle = '#ff9f1c'; g.textAlign = 'left'; g.fillText(`> ${fmt(f.xo, 0)} cm: ${fmt(f.oversizePct, 1)}%`, Math.min(X(f.xo) + 4, w - 110), mT + 10);
+  g.fillStyle = '#e4e8ee'; g.beginPath(); g.arc(X(f.x50), Y(0.5), 3.5, 0, 7); g.fill();
+  g.textAlign = 'left'; g.fillStyle = '#8b95a3'; g.fillText('przechodzi przez sito', mL + 4, mT + 10);
+}
+
+// ---------- sieć: klikanie, automat ----------
+function netClick(h) {
+  const net = state.net;
+  if (state.mode === 'start') {
+    const k = net.starts.indexOf(h.id);
+    if (k >= 0) net.starts.splice(k, 1); else net.starts.push(h.id);
+    status(k >= 0 ? `Usunięto punkt inicjacji z otworu ${h.name}.` : `Punkt inicjacji: otwór ${h.name}.`);
+    return update();
+  }
+  if (net.pending == null) { net.pending = h.id; status(`Połączenie od otworu ${h.name}: kliknij kolejny otwór.`); return update(); }
+  if (net.pending === h.id) { net.pending = null; status('Przerwano łączenie.'); return update(); }
+  const from = state.holes.find((x) => x.id === net.pending);
+  const ex = net.links.findIndex((l) => l.from === net.pending && l.to === h.id);
+  if (ex >= 0) { net.links.splice(ex, 1); status(`Usunięto połączenie ${from?.name} → ${h.name}.`); }
+  else {
+    net.links = net.links.filter((l) => l.to !== h.id); // do otworu wchodzi jedno połączenie
+    net.links.push({ from: net.pending, to: h.id, ms: num('netConn') });
+    status(`Połączono ${from?.name} → ${h.name} łącznikiem ${num('netConn')} ms. Kliknij kolejny otwór lub ten sam, aby zakończyć.`);
+  }
+  net.pending = h.id;
+  update();
+}
+
+function autoNet() {
+  const grid = state.holes.filter((h) => !h.manual).map((h) => ({ id: h.id, row: h.ref.row, u: h.ref.u }));
+  if (!grid.length) return status('Brak siatki: najpierw wygeneruj otwory.');
+  const r = autoNetwork(grid, { pattern: $('autoPattern').value, alongMs: num('autoAlong'), betweenMs: num('autoBetween') });
+  state.net = { starts: r.starts, links: r.links, pending: null };
+  status(`Utworzono sieć: ${r.links.length} połączeń, punkt inicjacji w otworze ${state.holes.find((h) => h.id === r.starts[0])?.name}.`);
+  update();
+}
+
+function readCatalog(id) {
+  return $(id).value.split(/[;,\s]+/).map(Number).filter((v) => Number.isFinite(v) && v >= 0);
+}
+function refreshCatalogs() {
+  const fill = (id, vals) => $(id).replaceChildren(...vals.map((v) => { const o = document.createElement('option'); o.value = v; return o; }));
+  fill('surfaceList', readCatalog('surfaceCat')); fill('inholeList', readCatalog('inholeCat'));
+}
+
+// ---------- symulacja: tryby, przygotowanie, przebudowa ----------
+let vizTimer = null;
+function queueViz() {
+  if (!state.viz.ready && $('simMode').value === 'off') return;
+  clearTimeout(vizTimer);
+  vizTimer = setTimeout(() => { if ($('simMode').value !== 'off') prepareViz(); }, 300);
+}
+
+async function prepareViz() {
+  const v = state.viz, mode = $('simMode').value;
+  if (mode === 'off' || !state.model) return;
+  const zs = zShift(), pat = readPattern();
+  v.mode = mode;
+  const info = v.prepare({
+    polygon: state.closed ? state.polygon : null, floorZ: state.types.normal.targetZ - zs, sampleZ,
+    holes: state.holes.map((h) => ({ x: h.x, y: h.y, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume })),
+    burden: pat.burden, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
+    az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
+    power: num('simPower') || 1, blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
+  });
+  if (!info.ok) { $('simInfo').textContent = info.message; state.model.visible = true; refreshTimeline(); return; }
+  state.model.visible = false;
+  clock.t = 0; clock.playing = false;
+  describeViz(info);
+  drawOverlay(); refreshTimeline();
+  if (mode === 'phys') { const kind = await v.ensurePhysics(); describeViz(info, kind); }
+}
+
+function describeViz(info, kind) {
+  const mode = state.viz.mode, noNet = !state.timing?.time.size;
+  const eng = kind === 'rapier' ? 'silnik Rapier' : kind === 'ballistic' ? 'uproszczona balistyka (silnik Rapier niedostępny)' : mode === 'phys' ? 'ładuję silnik fizyki…' : '';
+  $('simInfo').textContent = `${info.blocks.toLocaleString('pl')} bloczków po ${fmt(info.size, 2)} m, kierunek ku ścianie ${fmt(info.az, 0)}°` +
+    (mode !== 'time' ? `, odłamków ${info.frags.toLocaleString('pl')}, nienaruszonych (nadgabaryt) ${fmt((info.whole / info.blocks) * 100, 0)}%` : '') +
+    (eng ? `. Fizyka: ${eng}` : '') + (noNet ? '. Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '') + '.';
+}
+
+function setSimMode() {
+  const mode = $('simMode').value, v = state.viz;
+  if (mode === 'off') {
+    v.clear(); v.mode = 'off'; if (state.model) state.model.visible = true;
+    $('simInfo').textContent = 'Włącz tryb i użyj paska czasu na widoku 3D.';
+    clock.t = 0; clock.playing = false; drawOverlay(); refreshTimeline();
+    return;
+  }
+  $('tlSpeed').value = mode === 'phys' ? '0.5' : '0.25';
+  prepareViz();
+}
+
+async function togglePlay() {
+  const v = state.viz;
+  if (simActive()) {
+    if (v.playing) { v.playing = false; return updateTimelineUi(); }
+    if (v.t >= v.tMax - 1 || (v.mode === 'phys' && !v.sim)) { v.reset(); if (v.mode === 'phys') await v.ensurePhysics(); }
+    v.playing = true;
+  } else {
+    if (clock.playing) clock.playing = false;
+    else { if (clock.t >= tMaxNow() - 1) clock.t = 0; clock.playing = true; }
+  }
+  updateTimelineUi();
+}
+
+function resetClock() {
+  if (simActive()) state.viz.reset(); else { clock.t = 0; clock.playing = false; }
+  clock.t = 0; clock.playing = false;
+  applyHoleColors(); updateTimelineUi();
+}
+
 // ---------- interakcja ----------
 const raycaster = new THREE.Raycaster();
 const ndc = new THREE.Vector2();
@@ -756,7 +1083,7 @@ canvas.addEventListener('pointerup', (e) => {
   if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return; // przeciągnięcie = obrót kamery
   down = null;
   if (state.mode === 'orbit' || !state.model) return;
-  const markerHit = ['del', 'type', 'prof'].includes(state.mode) && state.markers ? pick(e, state.markers, false) : null;
+  const markerHit = ['del', 'type', 'prof', 'net', 'start'].includes(state.mode) && state.markers ? pick(e, state.markers, false) : null;
   if (state.mode === 'del') {
     if (markerHit) {
       const ref = state.holes[markerHit.instanceId].ref;
@@ -774,6 +1101,7 @@ canvas.addEventListener('pointerup', (e) => {
     }
     return;
   }
+  if ((state.mode === 'net' || state.mode === 'start')) { if (markerHit) netClick(state.holes[markerHit.instanceId]); return; }
   if (state.mode === 'prof' && markerHit) { openProfileForHole(state.holes[markerHit.instanceId]); return; }
   const hit = pick(e, state.model);
   if (!hit) return;
@@ -856,6 +1184,7 @@ function setMode(m) {
   state.mode = m;
   $('view').classList.toggle('tool', m !== 'orbit');
   if (m !== 'prof') state.profA = null;
+  if (m !== 'net' && state.net.pending != null) { state.net.pending = null; drawOverlay(); }
 }
 
 // Model przykładowy: ława z obrysem i siatką, żeby od razu było widać działanie.
@@ -873,7 +1202,7 @@ async function loadSample(withDesign = true) {
   if (!withDesign) return;
   const { size } = state;
   const at = (fx, fy) => { const x = (fx - 0.5) * size.x, y = (fy - 0.5) * size.y; return { x, y, z: sampleZ(x, y) ?? 0 }; };
-  state.polygon = [at(0.1, 0.15), at(0.5, 0.15), at(0.5, 0.8), at(0.1, 0.8)];
+  state.polygon = [at(0.1, 0.15), at(0.55, 0.15), at(0.55, 0.8), at(0.1, 0.8)]; // do krawędzi skarpy, żeby strzał miał wolną ścianę
   state.closed = true;
   generate();
   // przykład: rząd od strony skarpy (wschód) jako otwory profilowe, pochylone w stronę skarpy
@@ -921,6 +1250,24 @@ $('copyTpl').onclick = () => {
 };
 $('dbAdd').onclick = () => { state.products.push({ id: newProductId(), name: 'Nowy produkt', kind: 'bulk', density: 1, color: '#34d399' }); saveProducts(); renderDb(); renderTemplate(); };
 $('dbReset').onclick = () => { state.products = clone(DEFAULT_PRODUCTS); saveProducts(); renderDb(); renderTemplate(); update(); };
+$('autoNet').onclick = autoNet;
+$('netClear').onclick = () => { state.net = { starts: [], links: [], pending: null }; update(); status('Usunięto sieć.'); };
+for (const id of ['surfaceCat', 'inholeCat']) $(id).addEventListener('input', refreshCatalogs);
+$('colorMode').addEventListener('change', () => { state.colorMode = $('colorMode').value; drawOverlay(); refreshTimeline(); });
+$('delayWindow').addEventListener('input', () => update());
+$('simMode').addEventListener('change', setSimMode);
+for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower']) $(id).addEventListener('input', queueViz);
+for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize']) $(id).addEventListener('input', () => update());
+$('tlPlay').onclick = togglePlay;
+$('tlReset').onclick = resetClock;
+$('tlSlider').addEventListener('input', () => {
+  const t = ($('tlSlider').value / 1000) * tMaxNow();
+  if (simActive()) { if (state.viz.mode !== 'phys') state.viz.seek(t); } else { clock.playing = false; }
+  if (!(simActive() && state.viz.mode === 'phys')) clock.t = t;
+  applyHoleColors(); updateTimelineUi();
+});
+$('tlSpeed').addEventListener('change', () => { state.viz.speed = parseFloat($('tlSpeed').value); });
+for (const d of document.querySelectorAll('#panel details')) d.addEventListener('toggle', () => { drawFragChart(); drawDelayChart(); });
 $('profClose').onclick = closeProfile;
 $('profHole').onchange = () => {
   const h = state.holes.find((x) => String(x.id) === $('profHole').value);
@@ -937,14 +1284,17 @@ $('suggest').onclick = () => {
   status('Wstawiono wartości orientacyjne (B≈30·Ø, S≈1,15·B, przewiert≈0,3·B, przybitka≈0,7·B). Zweryfikuj je dla swojej skały i MW.');
 };
 for (const el of document.querySelectorAll('#panel input[type=number], #panel input[type=checkbox]')) {
-  if (el.closest('#tplRows, #dbRows, #profile')) continue;
+  if (el.closest('#tplRows, #dbRows, #profile, #simSec') || ['netConn', 'delayWindow'].includes(el.id)) continue;
   el.addEventListener('input', () => {
     if (el.hasAttribute('data-type')) inputsToType();
     if (el.hasAttribute('data-regen') && state.closed) generate(); else update();
   });
 }
 $('files').addEventListener('change', (e) => loadFiles(e.target.files));
-window.addEventListener('keydown', (e) => { if (e.key === 'Enter' && state.mode === 'poly' && e.target === document.body) closePolygon(); });
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && state.mode === 'poly' && e.target === document.body) closePolygon();
+  if (e.key === 'Escape' && state.net.pending != null) { state.net.pending = null; status('Przerwano łączenie.'); update(); }
+});
 
 const view = $('view');
 view.addEventListener('dragover', (e) => { e.preventDefault(); view.classList.add('dragging'); });
@@ -955,6 +1305,7 @@ typeToInputs();
 renderDb();
 renderStats();
 $('xmlPlanId').value = state.planId;
+refreshCatalogs();
 loadSample();
 
 // pomocnik do testów: położenie otworu na ekranie (piksele względem okna)
@@ -965,4 +1316,4 @@ function holeScreenPos(h) {
 }
 
 // do testów w przeglądarce
-window.__app = { holeScreenPos, state, loadFiles, generate, closePolygon, loadSample, update, exportXml, exportCsv, projectToJson, loadProjectFromText, renderProfile, openProfileForHole };
+window.__app = { camera, controls, clock, prepareViz, setSimMode, autoNet, togglePlay, resetClock, applyHoleColors, holeScreenPos, state, loadFiles, generate, closePolygon, loadSample, update, exportXml, exportCsv, projectToJson, loadProjectFromText, renderProfile, openProfileForHole };

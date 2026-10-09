@@ -87,3 +87,9 @@ input[type=text], select { width: 100%; padding: 6px 8px; background: var(--bg);
 .tplbody select { width: auto; flex: 0 1 auto; max-width: 48%; }
 .tplbody .tools { margin-left: auto; display: flex; gap: 4px; }
 .tplrow .k { width: auto; }
+
+#timeline { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: rgba(27,31,38,.92); border: 1px solid var(--line); border-radius: 6px; z-index: 2; }
+#timeline #tlSlider { flex: 1; min-width: 60px; }
+#timeline select { width: auto; }
+#tlTime { min-width: 74px; text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+#delayChart, #fragChart { width: 100%; display: block; margin-top: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
