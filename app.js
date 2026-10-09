@@ -1045,7 +1045,7 @@ function describeViz(info, kind) {
     (below > 2 && $('volBase').value === 'target' ? ` ⚠ Otwory sięgają średnio ${fmt(below, 1)} m poniżej rzędnej docelowej, a bryła kończy się na niej: ustaw „Bryła sięga do: dna otworów” albo skoryguj rzędną/długość otworu.` : '') : '';
   const parts = [`${info.blocks.toLocaleString('pl')} bloczków po ${fmt(info.size, 2)} m`, `kierunek ku ścianie ${fmt(info.az, 0)}°`];
   if (mode !== 'time') parts.push(`odłamków ${info.frags.toLocaleString('pl')}`, `nienaruszonych (nadgabaryt) ${fmt((info.whole / info.blocks) * 100, 0)}%`);
-  const around = info.rock ? ` Otoczenie skały: ${info.rock.toLocaleString('pl')} bloczków do ${fmt(vb.surDist, 0)} m od obrysu (${fmt(num('surround'), 1)} × zabiór ${fmt(vb.take, 0)} m).` : '';
+  const around = info.rock ? ` Otoczenie skały: ${info.rock.toLocaleString('pl')} bloczków do ${fmt(info.rockDist, 0)} m od obrysu, takie same jak bloczki serii (zadane ${fmt(num("surround"), 1)} × zabiór ${fmt(vb.take, 0)} m).` : '';
   $('simInfo').textContent = `${parts.join(', ')}.${base}${around}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
 }
 

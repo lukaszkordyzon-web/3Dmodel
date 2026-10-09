@@ -75,9 +75,9 @@ import { distToEdge } from './blast.js';
   const main = buildBlocks({ polygon: poly2, sampleZ: flat2, floorZ: 100, size: 1, holes: [{ x: 5, y: 5 }] });
   const overlaps = r.blocks.filter((b) => main.some((m) => Math.abs(b.x - m.x) < (b.sx + m.sx) / 2 - 1e-6 && Math.abs(b.y - m.y) < (b.sy + m.sy) / 2 - 1e-6 && Math.abs(b.z - m.z) < (b.sz + m.sz) / 2 - 1e-6)).length;
   assert.equal(overlaps, 0);
-  // limit liczby bloczków zwiększa rozmiar
+  // limit liczby bloczków skraca zasięg, rozmiar bloczka taki sam jak w serii
   const capped = buildSurround({ polygon: poly2, sampleZ: flat2, floorZ: 100, size: 1, dist: 10, maxBlocks: 800 });
-  assert.ok(capped.blocks.length <= 800 && capped.size > 1);
+  assert.ok(capped.blocks.length <= 800 && capped.size === 1 && capped.dist < 10);
   assert.equal(buildSurround({ polygon: poly2, sampleZ: flat2, floorZ: 100, size: 1, dist: 0 }).blocks.length, 0);
   // teren poniżej spągu (niższa ława) nie ma bloczków
   const step = (x) => (x > 20 ? 98 : 105);

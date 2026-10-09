@@ -53,11 +53,11 @@ export class BlastViz {
     this.tFireMin = Math.min(this.tFireMax, ...this.tFire);
     this.ground = buildGround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ });
     // otoczenie: nieodpalane bloczki skały wokół obrysu (z każdej strony), pełnią rolę ograniczenia dla ruchu urobku
-    const sur = ctx.surround?.dist > 0 ? buildSurround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, size: size * 1.5, dist: ctx.surround.dist, maxBlocks: ctx.surround.maxBlocks ?? 3000, gap: size * 0.75 }) : { blocks: [], size: 0 };
-    this.rock = sur.blocks; this.rockSize = sur.size;
+    const sur = ctx.surround?.dist > 0 ? buildSurround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, size, dist: ctx.surround.dist, maxBlocks: ctx.surround.maxBlocks ?? 3000 }) : { blocks: [], size: 0 };
+    this.rock = sur.blocks; this.rockSize = sur.size; this.rockDist = sur.dist;
     // teren dla Rapiera i na widoku: ścięty także w pasie otoczenia (tam stoi ruchoma skała); zamiennik balistyczny używa terenu bez cięcia
     this.groundB = this.ground;
-    if (this.rock.length) this.ground = buildGround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, cutDist: ctx.surround.dist });
+    if (this.rock.length) this.ground = buildGround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, cutDist: sur.dist });
 
     // prędkości początkowe (układ sceny): model w physics.js (kierunek ku ścianie, większe przy ścianie i u góry ławy)
     const rng = mulberry32(777), az = (this.az * Math.PI) / 180, B = ctx.burden || 3;
@@ -116,7 +116,7 @@ export class BlastViz {
     this.bState = new Uint8Array(blocks.length).fill(255);
     this.ready = true;
     this.reset();
-    return { ok: true, blocks: blocks.length, size, frags: this.fragParent.length, whole: this.wholeCount, az: this.az, height: this.height, rock: this.rock.length, rockSize: this.rockSize };
+    return { ok: true, blocks: blocks.length, size, frags: this.fragParent.length, whole: this.wholeCount, az: this.az, height: this.height, rock: this.rock.length, rockSize: this.rockSize, rockDist: this.rockDist };
   }
 
   // skała otoczenia na pozycjach początkowych

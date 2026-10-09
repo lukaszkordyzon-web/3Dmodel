@@ -104,26 +104,29 @@ export function groundHeight(g, x, y) {
 }
 
 // Otoczenie: nieodpalane bloczki skały wokół obrysu, do odległości dist (m). Rozmiar rośnie, żeby bloczków było nie więcej niż maxBlocks.
-export function buildSurround({ polygon, sampleZ, floorZ, size, dist, maxBlocks = 3000, gap = 0 }) {
-  if (!(dist > 0)) return { blocks: [], size };
+export function buildSurround({ polygon, sampleZ, floorZ, size, dist, maxBlocks = 3000 }) {
+  if (!(dist > 0)) return { blocks: [], size, dist: 0 };
+  // ta sama siatka i ten sam rozmiar co bloczki serii (początek siatki w narożniku obrysu), bez luki przy obrysie;
+  // limit liczby bloczków skraca zasięg otoczenia, a nie powiększa bloczków
   const xs = polygon.map((p) => p.x), ys = polygon.map((p) => p.y);
-  const x0 = Math.min(...xs) - dist, x1 = Math.max(...xs) + dist, y0 = Math.min(...ys) - dist, y1 = Math.max(...ys) + dist;
-  let s = size, blocks = [];
-  for (let guard = 0; guard < 12; guard++) {
+  const gx = Math.min(...xs) + size / 2, gy = Math.min(...ys) + size / 2;
+  let d0 = dist, blocks = [];
+  for (let guard = 0; guard < 30; guard++) {
     blocks = [];
-    for (let cx = x0 + s / 2; cx < x1; cx += s) {
-      for (let cy = y0 + s / 2; cy < y1; cy += s) {
-        if (pointInPolygon(cx, cy, polygon)) continue;
-        const d = distToEdge(cx, cy, polygon);
-        if (d > dist || d < gap + s * 0.75) continue; // pas przy obrysie zostaje wolny, żeby bloczki nie nachodziły na bryłę strzału (gap = wystawanie jej skrajnych bloczków)
+    const kx0 = Math.floor((Math.min(...xs) - d0 - gx) / size), kx1 = Math.ceil((Math.max(...xs) + d0 - gx) / size);
+    const ky0 = Math.floor((Math.min(...ys) - d0 - gy) / size), ky1 = Math.ceil((Math.max(...ys) + d0 - gy) / size);
+    for (let kx = kx0; kx <= kx1; kx++) {
+      for (let ky = ky0; ky <= ky1; ky++) {
+        const cx = gx + kx * size, cy = gy + ky * size;
+        if (pointInPolygon(cx, cy, polygon) || distToEdge(cx, cy, polygon) > d0) continue;
         const top = sampleZ(cx, cy);
         if (top == null || top - floorZ < 0.2) continue;
-        const nz = Math.max(1, Math.round((top - floorZ) / s)), hz = (top - floorZ) / nz;
-        for (let j = 0; j < nz; j++) blocks.push({ x: cx, y: cy, z: floorZ + (j + 0.5) * hz, sx: s, sy: s, sz: hz, hole: -1 });
+        const nz = Math.max(1, Math.round((top - floorZ) / size)), hz = (top - floorZ) / nz;
+        for (let j = 0; j < nz; j++) blocks.push({ x: cx, y: cy, z: floorZ + (j + 0.5) * hz, sx: size, sy: size, sz: hz, hole: -1 });
       }
     }
     if (blocks.length <= maxBlocks) break;
-    s *= 1.25;
+    d0 *= 0.85;
   }
-  return { blocks, size: s };
+  return { blocks, size, dist: d0 };
 }

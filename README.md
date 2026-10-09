@@ -46,7 +46,7 @@ Po zmianach w `app.js`, `index.html` lub `style.css` przebuduj osadzany plik:
    (silnik Rapier, a gdy WebAssembly jest niedostępny, uproszczona balistyka). Pasek czasu na widoku 3D. Nie służy do wyznaczania
    stref bezpieczeństwa, zasięgu odłamków ani drgań.
    Wokół obrysu można dodać **otoczenie skały** (nieodpalane bloczki z każdej strony, domyślnie 2 × zabiór, gdzie zabiór to
-   szerokość strzału w poprzek rzędów). W trybie fizyki otoczenie jest ruchome (śpiące ciała, budzone uderzeniami): odpalane są tylko bloczki serii, a otoczenie ogranicza ich rozsypanie i samo może zostać przesunięte (silnik zapasowy – balistyczny – go nie rusza).
+   szerokość strzału w poprzek rzędów). W trybie fizyki otoczenie jest ruchome, o tej samej siatce i rozmiarze co bloczki serii (śpiące ciała, budzone uderzeniami): odpalane są tylko bloczki serii, a otoczenie ogranicza ich rozsypanie i samo może zostać przesunięte (silnik zapasowy – balistyczny – go nie rusza).
 9. **Zapis projektu** (JSON) i **eksport planu wierceń** w formacie IREDES XML (kolejność osi N, E, H, układ PL-2000).
    CSV z opisem ładunku.
 
