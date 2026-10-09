@@ -707,7 +707,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'volBase', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -1017,13 +1017,17 @@ async function prepareViz() {
   const meanToe = normals.length ? normals.reduce((s, h) => s + h.toe.z, 0) / normals.length : state.types.normal.targetZ - zs;
   const target = state.types.normal.targetZ - zs;
   const floorZ = $('volBase').value === 'toe' ? Math.min(target, meanToe) : target;
-  state.vizBase = { target, meanToe, floorZ };
+  // zabiór = szerokość strzału w poprzek rzędów (liczba rzędów × burden); otoczenie = krotność zabioru z każdej strony
+  const rows = state.grid.length ? Math.max(...state.grid.map((g) => g.row)) + 1 : 3;
+  const take = pat.burden * rows, sur = Math.max(0, num('surround'));
+  state.vizBase = { target, meanToe, floorZ, take, surDist: sur * take };
   const info = v.prepare({
     polygon: state.closed ? state.polygon : null, floorZ, sampleZ,
     holes: state.holes.map((h) => ({ x: h.x, y: h.y, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume })),
     burden: pat.burden, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
     az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
     power: num('simPower') || 1, blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
+    surround: { dist: sur * take, maxBlocks: 3000 },
   });
   if (!info.ok) { $('simInfo').textContent = info.message; state.model.visible = true; refreshTimeline(); return; }
   state.model.visible = false;
@@ -1041,7 +1045,8 @@ function describeViz(info, kind) {
     (below > 2 && $('volBase').value === 'target' ? ` ⚠ Otwory sięgają średnio ${fmt(below, 1)} m poniżej rzędnej docelowej, a bryła kończy się na niej: ustaw „Bryła sięga do: dna otworów” albo skoryguj rzędną/długość otworu.` : '') : '';
   const parts = [`${info.blocks.toLocaleString('pl')} bloczków po ${fmt(info.size, 2)} m`, `kierunek ku ścianie ${fmt(info.az, 0)}°`];
   if (mode !== 'time') parts.push(`odłamków ${info.frags.toLocaleString('pl')}`, `nienaruszonych (nadgabaryt) ${fmt((info.whole / info.blocks) * 100, 0)}%`);
-  $('simInfo').textContent = `${parts.join(', ')}.${base}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
+  const around = info.rock ? ` Otoczenie skały: ${info.rock.toLocaleString('pl')} bloczków do ${fmt(vb.surDist, 0)} m od obrysu (${fmt(num('surround'), 1)} × zabiór ${fmt(vb.take, 0)} m).` : '';
+  $('simInfo').textContent = `${parts.join(', ')}.${base}${around}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
 }
 
 function setSimMode() {
@@ -1275,7 +1280,7 @@ for (const id of ['surfaceCat', 'inholeCat']) $(id).addEventListener('input', re
 $('colorMode').addEventListener('change', () => { state.colorMode = $('colorMode').value; drawOverlay(); refreshTimeline(); });
 $('delayWindow').addEventListener('input', () => update());
 $('simMode').addEventListener('change', setSimMode);
-for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower']) $(id).addEventListener('input', queueViz);
+for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'surround']) $(id).addEventListener('input', queueViz);
 $('volBase').addEventListener('change', queueViz);
 for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize']) $(id).addEventListener('input', () => update());
 $('tlPlay').onclick = togglePlay;

@@ -45,6 +45,8 @@ Po zmianach w `app.js`, `index.html` lub `style.css` przebuduj osadzany plik:
    rozpad bloczków na odłamki wg Kuz-Ram (bloczki większe niż rozmiar z rozkładu zostają jako nadgabaryt) i fizyka ruchu
    (silnik Rapier, a gdy WebAssembly jest niedostępny, uproszczona balistyka). Pasek czasu na widoku 3D. Nie służy do wyznaczania
    stref bezpieczeństwa, zasięgu odłamków ani drgań.
+   Wokół obrysu można dodać **otoczenie skały** (nieodpalane bloczki z każdej strony, domyślnie 2 × zabiór, gdzie zabiór to
+   szerokość strzału w poprzek rzędów). W trybie fizyki otoczenie jest nieruchome i ogranicza ruch urobku.
 9. **Zapis projektu** (JSON) i **eksport planu wierceń** w formacie IREDES XML (kolejność osi N, E, H, układ PL-2000).
    CSV z opisem ładunku.
 

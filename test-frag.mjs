@@ -56,3 +56,32 @@ assert.equal(faceAzimuth({ polygon: poly, sampleZ: () => null, fallbackAz: 17 })
 // odległość do krawędzi w kierunku +X z punktu (15,5) w obrysie 20x10: 5 m
 near(distanceToEdge(poly, 15, 5, 90), 5, 1e-9); near(distanceToEdge(poly, 15, 5, 0), 5, 1e-9);
 console.log('fragmentation.js, blocks.js: OK');
+
+// otoczenie skały wokół obrysu
+import { buildSurround } from './blocks.js';
+import { distToEdge } from './blast.js';
+{
+  const poly2 = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }];
+  const flat2 = () => 105;
+  const r = buildSurround({ polygon: poly2, sampleZ: flat2, floorZ: 100, size: 1, dist: 10, maxBlocks: 100000 });
+  assert.ok(r.blocks.length > 1000);
+  for (const b of r.blocks) {
+    const inside = b.x > 0 && b.x < 20 && b.y > 0 && b.y < 10;
+    assert.ok(!inside, 'bloczek otoczenia nie leży w obrysie');
+    assert.ok(distToEdge(b.x, b.y, poly2) <= 10 + 1e-9, 'w zasięgu otoczenia');
+    assert.ok(b.z - b.sz / 2 >= 100 - 1e-9 && b.z + b.sz / 2 <= 105 + 1e-9);
+  }
+  // brak nachodzenia na bryłę strzału: bloczki otoczenia nie wchodzą w obrys ani w pas przy nim
+  const main = buildBlocks({ polygon: poly2, sampleZ: flat2, floorZ: 100, size: 1, holes: [{ x: 5, y: 5 }] });
+  const overlaps = r.blocks.filter((b) => main.some((m) => Math.abs(b.x - m.x) < (b.sx + m.sx) / 2 - 1e-6 && Math.abs(b.y - m.y) < (b.sy + m.sy) / 2 - 1e-6 && Math.abs(b.z - m.z) < (b.sz + m.sz) / 2 - 1e-6)).length;
+  assert.equal(overlaps, 0);
+  // limit liczby bloczków zwiększa rozmiar
+  const capped = buildSurround({ polygon: poly2, sampleZ: flat2, floorZ: 100, size: 1, dist: 10, maxBlocks: 800 });
+  assert.ok(capped.blocks.length <= 800 && capped.size > 1);
+  assert.equal(buildSurround({ polygon: poly2, sampleZ: flat2, floorZ: 100, size: 1, dist: 0 }).blocks.length, 0);
+  // teren poniżej spągu (niższa ława) nie ma bloczków
+  const step = (x) => (x > 20 ? 98 : 105);
+  const r2 = buildSurround({ polygon: poly2, sampleZ: step, floorZ: 100, size: 1, dist: 10, maxBlocks: 100000 });
+  assert.ok(r2.blocks.every((b) => b.x < 20 + 0.01));
+  console.log('buildSurround: OK');
+}
