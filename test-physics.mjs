@@ -46,6 +46,32 @@ for (const mk of [() => createRapierEngine(R, ground, blocks), () => createBalli
   engine.dispose();
 }
 
+// ruchome otoczenie: śpiące bloczki za frontem (x>10) stoją, a odpalone bloczki z serii je popychają
+{
+  const rock = [];
+  for (let ix = 0; ix < 4; ix++) for (let iy = 0; iy < 6; iy++) rock.push({ x: 10.5 + ix, y: iy + 0.5, z: 101.5, sx: 1, sy: 1, sz: 3 });
+  const g2 = buildGround({ polygon: poly, sampleZ: (x) => (x > 10 ? 103 : 103), floorZ: 100, margin: 20, maxCells: 100, cutDist: 6 });
+  const eng = createRapierEngine(R, g2, [...blocks, ...rock], { movableFrom: blocks.length });
+  const o = new Float32Array(7), p0 = (b) => toWorld(b.x, b.y, b.z);
+  const k0 = blocks.length;
+  const sim0 = new BlastSim(eng, []);
+  sim0.advanceTo(2000);
+  for (let j = 0; j < rock.length; j++) { eng.pose(k0 + j, o, 0); assert.ok(Math.hypot(o[0] - p0(rock[j]).x, o[1] - p0(rock[j]).y) < 0.01, 'nietknięte otoczenie stoi'); }
+  const fr = blocks.map((b, i) => [b, i]).filter(([b]) => b.x > 9);
+  const sim = new BlastSim(eng, fr.map(([, i]) => ({ i, tMs: 100, v: { x: 6, y: 1.5, z: 0 }, w: { x: 0, y: 0, z: 0.3 } })));
+  sim.advanceTo(4000);
+  assert.ok(fr.every(([, i]) => i < k0), 'odpalane tylko bloczki serii');
+  let pushed = 0;
+  for (let j = 0; j < rock.length; j++) {
+    eng.pose(k0 + j, o, 0);
+    assert.ok([...o].every(Number.isFinite));
+    if (o[0] > p0(rock[j]).x + 0.3) pushed++;
+  }
+  console.log('otoczenie popchnięte:', pushed, 'z', rock.length);
+  assert.ok(pushed >= 3, 'otoczenie powinno być popchnięte przez seria');
+  eng.dispose();
+}
+
 // model prędkości: kierunek ku ścianie, większe przy ścianie i u góry, skaluje się z power
 import { throwVelocities } from './physics.js';
 let seed = 3; const rng = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };

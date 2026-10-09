@@ -55,6 +55,9 @@ export class BlastViz {
     // otoczenie: nieodpalane bloczki skały wokół obrysu (z każdej strony), pełnią rolę ograniczenia dla ruchu urobku
     const sur = ctx.surround?.dist > 0 ? buildSurround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, size: size * 1.5, dist: ctx.surround.dist, maxBlocks: ctx.surround.maxBlocks ?? 3000, gap: size * 0.75 }) : { blocks: [], size: 0 };
     this.rock = sur.blocks; this.rockSize = sur.size;
+    // teren dla Rapiera i na widoku: ścięty także w pasie otoczenia (tam stoi ruchoma skała); zamiennik balistyczny używa terenu bez cięcia
+    this.groundB = this.ground;
+    if (this.rock.length) this.ground = buildGround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, cutDist: ctx.surround.dist });
 
     // prędkości początkowe (układ sceny): model w physics.js (kierunek ku ścianie, większe przy ścianie i u góry ławy)
     const rng = mulberry32(777), az = (this.az * Math.PI) / 180, B = ctx.burden || 3;
@@ -97,16 +100,16 @@ export class BlastViz {
     const gg = new THREE.BufferGeometry();
     gg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); gg.setIndex(idx); gg.computeVertexNormals();
     this.groundMesh = new THREE.Mesh(gg, new THREE.MeshStandardMaterial({ color: 0x6f7883, roughness: 1, flatShading: true, side: THREE.DoubleSide }));
+    for (const m of [this.blockMesh, this.fragMesh]) m.frustumCulled = false;
     this.groundMesh.position.y = -0.12; // wizualnie nieco niżej, żeby bloczki skały były widoczne (fizyka używa siatki bez przesunięcia)
     this.group.add(this.groundMesh, this.blockMesh, this.fragMesh);
     if (this.rock.length) {
       this.rockMesh = new THREE.InstancedMesh(box, new THREE.MeshStandardMaterial({ roughness: 0.95 }), this.rock.length);
-      const mm = new THREE.Matrix4(), pp = new THREE.Vector3(), qq = new THREE.Quaternion(), ss = new THREE.Vector3(), cc = new THREE.Color();
-      this.rock.forEach((b, i) => {
-        const g = 0.3 + 0.08 * ((i * 2654435761) % 1000 / 1000);
-        mm.compose(pp.set(b.x, b.z, -b.y), qq, ss.set(b.sx * 0.97, b.sz * 0.97, b.sy * 0.97));
-        this.rockMesh.setMatrixAt(i, mm); this.rockMesh.setColorAt(i, cc.setRGB(g * 0.92, g, g * 1.18));
-      });
+      const cc = new THREE.Color();
+      this.rock.forEach((b, i) => { const g = 0.3 + 0.08 * (((i * 2654435761) >>> 0) % 1000 / 1000); this.rockMesh.setColorAt(i, cc.setRGB(g * 0.92, g, g * 1.18)); });
+      this.rockMesh.frustumCulled = false;
+      this.rockPose = new Float32Array(7);
+      this.resetRock();
       this.group.add(this.rockMesh);
     }
     this.m = new THREE.Matrix4(); this.p = new THREE.Vector3(); this.q = new THREE.Quaternion(); this.s = new THREE.Vector3(); this.c = new THREE.Color(); this.o = new THREE.Vector3();
@@ -114,6 +117,14 @@ export class BlastViz {
     this.ready = true;
     this.reset();
     return { ok: true, blocks: blocks.length, size, frags: this.fragParent.length, whole: this.wholeCount, az: this.az, height: this.height, rock: this.rock.length, rockSize: this.rockSize };
+  }
+
+  // skała otoczenia na pozycjach początkowych
+  resetRock() {
+    if (!this.rockMesh) return;
+    const mm = new THREE.Matrix4(), pp = new THREE.Vector3(), qq = new THREE.Quaternion(), ss = new THREE.Vector3();
+    this.rock.forEach((b, i) => { mm.compose(pp.set(b.x, b.z, -b.y), qq, ss.set(b.sx * 0.97, b.sz * 0.97, b.sy * 0.97)); this.rockMesh.setMatrixAt(i, mm); });
+    this.rockMesh.instanceMatrix.needsUpdate = true;
   }
 
   setMode(mode) {
@@ -127,6 +138,7 @@ export class BlastViz {
     this.t = 0; this.playing = false; this.acc = 0;
     this.sim?.engine.dispose(); this.sim = null;
     this.bState.fill(255);
+    this.resetRock();
     this.fragMesh.visible = this.mode === 'frag' || this.mode === 'phys';
     this.render(0, true);
   }
@@ -135,8 +147,8 @@ export class BlastViz {
     if (this.mode !== 'phys' || this.sim || !this.ready) return this.engineKind;
     rapierPromise ??= loadRapier([globalThis.__RAPIER_URL__, new URL('./vendor/rapier/rapier.mjs', globalThis.document?.baseURI ?? 'http://localhost/').href, CDN]);
     const R = await rapierPromise;
-    // skała wokół strzału jest nieruchoma (ciała stałe), ale blokuje urobek; zamiennik balistyczny jej nie uwzględnia
-    const engine = R ? createRapierEngine(R, this.ground, [...this.blocks, ...this.rock]) : createBallisticEngine(this.ground, this.blocks);
+    // skała wokół strzału jest ruchoma (uśpione ciała dynamiczne): budzi się od uderzeń urobku; zamiennik balistyczny jej nie rusza
+    const engine = R ? createRapierEngine(R, this.ground, [...this.blocks, ...this.rock], { movableFrom: this.blocks.length }) : createBallisticEngine(this.groundB, this.blocks);
     this.engineKind = engine.kind;
     this.poses = new Float32Array(this.blocks.length * 7);
     this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.vel[i].v, w: this.vel[i].w })));
@@ -177,6 +189,17 @@ export class BlastViz {
     const phys = mode === 'phys' && this.sim;
     const useFrags = mode !== 'time';
     if (phys) for (const i of this.sim.engine.fired) this.sim.engine.pose(i, this.poses, i * 7);
+    if (phys && this.rockMesh) { // ruchoma skała otoczenia: tylko te bloczki, które się ruszają
+      const mm = new THREE.Matrix4(), pp = new THREE.Vector3(), qq = new THREE.Quaternion(), ss = new THREE.Vector3(), rp = this.rockPose;
+      let any = false;
+      for (let i = 0; i < this.rock.length; i++) {
+        if (!this.sim.engine.poseIfMoving(blocks.length + i, rp, 0)) continue;
+        const b = this.rock[i];
+        mm.compose(pp.set(rp[0], rp[1], rp[2]), qq.set(rp[3], rp[4], rp[5], rp[6]), ss.set(b.sx * 0.97, b.sz * 0.97, b.sy * 0.97));
+        this.rockMesh.setMatrixAt(i, mm); any = true;
+      }
+      if (any) this.rockMesh.instanceMatrix.needsUpdate = true;
+    }
     let anyFrag = false;
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i], tf = this.tFire[i], fired = tf <= t, age = t - tf;

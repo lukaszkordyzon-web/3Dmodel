@@ -20,7 +20,9 @@ export async function loadRapier(urls) {
 }
 
 // ---------- silnik Rapier ----------
+// blocks od indeksu opts.movableFrom to ruchoma skała otoczenia: ciała dynamiczne, uśpione do pierwszego kontaktu.
 export function createRapierEngine(R, ground, blocks, opts = {}) {
+  const movableFrom = opts.movableFrom ?? Infinity;
   const world = new R.World({ x: 0, y: -G, z: 0 });
   world.timestep = 1 / 60;
   const verts = new Float32Array(ground.nx * ground.ny * 3);
@@ -38,15 +40,17 @@ export function createRapierEngine(R, ground, blocks, opts = {}) {
   world.createCollider(R.ColliderDesc.trimesh(verts, new Uint32Array(idx), flags));
   let lowest = Infinity; for (const h of ground.h) lowest = Math.min(lowest, h);
   world.createCollider(R.ColliderDesc.cuboid(1000, 0.5, 1000).setTranslation(ground.x0, lowest - 4, -ground.y0)); // zabezpieczenie przed „wypadnięciem”
-  const bodies = blocks.map((b) => {
+  const bodies = blocks.map((b, i) => {
     const p = toWorld(b.x, b.y, b.z);
-    const rb = world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(p.x, p.y, p.z));
+    const desc = i >= movableFrom ? R.RigidBodyDesc.dynamic().setCanSleep(true).setSleeping(true) : R.RigidBodyDesc.fixed();
+    const rb = world.createRigidBody(desc.setTranslation(p.x, p.y, p.z));
     const k = 0.9; // luz między bloczkami (spękany, rozluźniony urobek)
     world.createCollider(R.ColliderDesc.cuboid((b.sx / 2) * k, (b.sz / 2) * k, (b.sy / 2) * k).setFriction(0.5).setRestitution(0.05).setDensity(2600), rb);
     rb.setAngularDamping(3); rb.setLinearDamping(0.3); // nieregularna skała nie turla się jak kostki
     return rb;
   });
   const fired = [];
+  const wasAwake = new Uint8Array(blocks.length);
   return {
     kind: 'rapier', fired,
     fire(i, v, w) {
@@ -56,6 +60,14 @@ export function createRapierEngine(R, ground, blocks, opts = {}) {
       fired.push(i);
     },
     step() { world.step(); },
+    // pozycja ruchomej skały: tylko gdy się rusza (albo właśnie zasnęła); zwraca, czy zapisano pozę
+    poseIfMoving(i, out, o) {
+      const asleep = bodies[i].isSleeping();
+      if (asleep && !wasAwake[i]) return false;
+      wasAwake[i] = asleep ? 0 : 1;
+      this.pose(i, out, o);
+      return true;
+    },
     pose(i, out, o) {
       const t = bodies[i].translation(), q = bodies[i].rotation();
       out[o] = t.x; out[o + 1] = t.y; out[o + 2] = t.z; out[o + 3] = q.x; out[o + 4] = q.y; out[o + 5] = q.z; out[o + 6] = q.w;
@@ -88,6 +100,7 @@ export function createBallisticEngine(ground, blocks) {
         s.q = norm([qx + hx * (s.w.x * qw + s.w.y * qz - s.w.z * qy), qy + hx * (s.w.y * qw + s.w.z * qx - s.w.x * qz), qz + hx * (s.w.z * qw + s.w.x * qy - s.w.y * qx), qw - hx * (s.w.x * qx + s.w.y * qy + s.w.z * qz)]);
       }
     },
+    poseIfMoving() { return false; },
     pose(i, out, o) { const s = st[i]; out[o] = s.p.x; out[o + 1] = s.p.y; out[o + 2] = s.p.z; out[o + 3] = s.q[0]; out[o + 4] = s.q[1]; out[o + 5] = s.q[2]; out[o + 6] = s.q[3]; },
     dispose() {},
   };

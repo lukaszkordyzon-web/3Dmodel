@@ -75,7 +75,8 @@ export function distanceToEdge(polygon, x, y, azDeg) {
 }
 
 // Teren dla symulacji: siatka wysokości. W obrysie jest rzędna docelowa (bryła usunięta), poza nim teren.
-export function buildGround({ polygon, sampleZ, floorZ, margin = 45, maxCells = 160 }) {
+// cutDist > 0: teren jest ścięty do rzędnej docelowej także w pasie otoczenia (tam stoją ruchome bloczki skały).
+export function buildGround({ polygon, sampleZ, floorZ, margin = 45, maxCells = 160, cutDist = 0 }) {
   const xs = polygon.map((p) => p.x), ys = polygon.map((p) => p.y);
   const x0 = Math.min(...xs) - margin, y0 = Math.min(...ys) - margin;
   const w = Math.max(...xs) + margin - x0, h = Math.max(...ys) + margin - y0;
@@ -86,7 +87,8 @@ export function buildGround({ polygon, sampleZ, floorZ, margin = 45, maxCells = 
     for (let i = 0; i < nx; i++) {
       const x = x0 + i * dx, y = y0 + j * dx, t = sampleZ(x, y);
       // strefa wycięta jest o komórkę szersza od obrysu, żeby stroma rampa terenu nie wchodziła w skrajne bloczki
-      const cut = pointInPolygon(x, y, polygon) || distToEdge(x, y, polygon) < dx * 1.01;
+      const inside = pointInPolygon(x, y, polygon), de = inside ? 0 : distToEdge(x, y, polygon);
+      const cut = inside || de < dx * 1.01 || (cutDist > 0 && de <= cutDist + dx * 1.01);
       hg[j * nx + i] = cut ? Math.min(t ?? floorZ, floorZ) : (t ?? floorZ - 3);
     }
   }
