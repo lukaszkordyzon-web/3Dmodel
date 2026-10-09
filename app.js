@@ -9,7 +9,7 @@ import { pl2000ToLonLat } from './geo.js';
 import { buildProfile, drawProfile } from './profile.js';
 import { computeTiming, maxChargeInWindow, groupByTime, autoNetwork } from './network.js';
 import { lillyA, kuzRam, retained, passing } from './fragmentation.js';
-import { BlastViz, timeColor } from './sim.js';
+import { BlastViz, timeColor, SIZE_STOPS, sizeColor } from './sim.js';
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => parseFloat($(id).value) || 0;
@@ -1049,8 +1049,19 @@ function describeViz(info, kind) {
   $('simInfo').textContent = `${parts.join(', ')}.${base}${around}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
 }
 
+function sizeLegend(show) {
+  const el = $('sizeLegend'); el.hidden = !show;
+  if (!show || el.dataset.ok) return;
+  const css = (d) => { const c = sizeColor(d); return `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`; };
+  const lo = SIZE_STOPS[0][0], hi = SIZE_STOPS[SIZE_STOPS.length - 1][0];
+  const stops = Array.from({ length: 13 }, (_, i) => { const d = lo * (hi / lo) ** (i / 12); return `${css(d)} ${(i / 12 * 100).toFixed(0)}%`; }).join(',');
+  el.innerHTML = `Wielkość odłamków (po rozpadzie):<div style="height:10px;border-radius:5px;margin:4px 0 2px;background:linear-gradient(90deg,${stops})"></div><div style="display:flex;justify-content:space-between"><span>2 cm</span><span>10 cm</span><span>30 cm</span><span>60 cm</span><span>1 m</span><span>≥1,5 m</span></div>`;
+  el.dataset.ok = '1';
+}
+
 function setSimMode() {
   const mode = $('simMode').value, v = state.viz;
+  sizeLegend(mode === 'frag' || mode === 'phys');
   if (mode === 'off') {
     v.clear(); v.mode = 'off'; if (state.model) state.model.visible = true;
     $('simInfo').textContent = 'Włącz tryb i użyj paska czasu na widoku 3D.';

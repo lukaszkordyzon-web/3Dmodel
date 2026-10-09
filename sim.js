@@ -13,6 +13,15 @@ export function timeColor(f, out = new THREE.Color()) {
   return out.setRGB(STOPS[i][0] + (STOPS[i + 1][0] - STOPS[i][0]) * t, STOPS[i][1] + (STOPS[i + 1][1] - STOPS[i][1]) * t, STOPS[i][2] + (STOPS[i + 1][2] - STOPS[i][2]) * t);
 }
 
+// kolor wg wielkości odłamka [m] (średnica równoważna): skala logarytmiczna 2 cm … 1,5 m, drobne niebieskie → grube czerwone
+export const SIZE_STOPS = [[0.02, [0.16, 0.36, 0.85]], [0.1, [0.1, 0.7, 0.8]], [0.3, [0.25, 0.8, 0.35]], [0.6, [0.95, 0.85, 0.2]], [1.0, [0.95, 0.5, 0.15]], [1.5, [0.85, 0.12, 0.12]]];
+export function sizeColor(d, out = new THREE.Color()) {
+  const S = SIZE_STOPS;
+  if (d <= S[0][0]) return out.setRGB(...S[0][1]);
+  for (let i = 1; i < S.length; i++) if (d <= S[i][0]) { const t = Math.log(d / S[i - 1][0]) / Math.log(S[i][0] / S[i - 1][0]), a = S[i - 1][1], b = S[i][1]; return out.setRGB(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t); }
+  return out.setRGB(...S[S.length - 1][1]);
+}
+
 const mulberry32 = (a) => () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const easeOut = (x) => 1 - (1 - Math.min(Math.max(x, 0), 1)) ** 3;
 const CDN = 'https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs';
@@ -236,7 +245,7 @@ export class BlastViz {
       if (mode === 'time') {
         if (!fired) timeColor(this.tFireMax > this.tFireMin ? (tf - this.tFireMin) / (this.tFireMax - this.tFireMin) : 0, c);
         else { const fl = Math.max(0, 1 - age / 220); c.setRGB(0.26 + 0.74 * fl, 0.28 + 0.6 * fl, 0.3 + 0.4 * fl); }
-      } else if (fired && this.whole[i]) c.setRGB(0.95, 0.5, 0.15); // nadgabaryt: bloczek nie rozpadł się
+      } else if (fired && this.whole[i]) sizeColor(Math.cbrt(b.sx * b.sy * b.sz), c); // nadgabaryt: bloczek nie rozpadł się (cały bloczek)
       else { const g = 0.45 * this.blockGray[i]; c.setRGB(g, g * 1.03, g * 1.1); }
       this.blockMesh.setColorAt(i, c);
       // odłamki tego bloczka
@@ -247,7 +256,7 @@ export class BlastViz {
           p.set(px + o.x, py + o.y, pz + o.z);
           s.set(this.fragDim[k * 3], this.fragDim[k * 3 + 1], this.fragDim[k * 3 + 2]);
           m.compose(p, q, s); this.fragMesh.setMatrixAt(k, m);
-          const g = 0.42 * this.fragGray[k]; c.setRGB(g, g * 1.03, g * 1.08); this.fragMesh.setColorAt(k, c);
+          const fk = k * 3; const sh = 0.8 + 0.2 * this.fragGray[k]; sizeColor(Math.cbrt(this.fragDim[fk] * this.fragDim[fk + 1] * this.fragDim[fk + 2]), c); c.multiplyScalar(sh); this.fragMesh.setColorAt(k, c);
         }
         anyFrag = true;
       }
