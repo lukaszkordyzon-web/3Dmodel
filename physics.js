@@ -133,6 +133,14 @@ export class BlastSim {
 
 // Prędkości początkowe bloczków (układ sceny) w chwili odpalenia. Model poglądowy, nie przewidywanie:
 // kierunek ku wolnej ścianie, większe przy ścianie i u góry ławy, skalowane jednostkowym zużyciem MW i parametrem power.
+// Krzywa rzutu od zużycia jednostkowego MW (pf, kg/m³), wg doświadczenia: pf ≈ 0,1 – ława tylko się luzuje i pęka, prawie bez przemieszczenia;
+// pf ≈ 0,5 – normalny strzał (g = 1); pf ≥ 0,7 – daleki wyrzut (g ≈ 1,8), niski usyp. Powyżej ok. 1 kg/m³ nasycenie (g ≤ 3).
+export const PF_NONE = 0.1, PF_REF = 0.5, V_REF = 5; // V_REF [m/s]: prędkość pozioma przy pf = PF_REF (bez losowości i wpływu ściany)
+export function throwFactor(pf) {
+  if (!(pf > PF_NONE)) return 0;
+  return Math.min(3, ((pf - PF_NONE) / (PF_REF - PF_NONE)) ** 1.5);
+}
+
 export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3, power = 1, rng = Math.random }) {
   const a0 = (az * Math.PI) / 180;
   const top = Math.max(...blocks.map((b) => b.z + b.sz / 2)) - floorZ || 1;
@@ -140,8 +148,8 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
     const h = holes[b.hole], pf = h.volume > 0 ? h.mass / h.volume : 0.4;
     const wFace = 0.45 + 0.55 * Math.exp(-distanceToEdge(polygon, b.x, b.y, az) / (3 * burden));
     const hf = Math.min(Math.max((b.z - floorZ) / top, 0), 1);               // 0 przy spągu, 1 przy wierzchu ławy
-    const vH = 7 * power * Math.sqrt(Math.max(pf, 0.05) / 0.4) * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
+    const vH = V_REF * power * throwFactor(pf) * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
     const a = a0 + ((rng() - 0.5) * 40 * Math.PI) / 180;
-    return { vH, v: { x: Math.sin(a) * vH, y: 0.6 * vH + 1, z: -Math.cos(a) * vH }, w: { x: (rng() - 0.5) * 4, y: (rng() - 0.5) * 4, z: (rng() - 0.5) * 4 } };
+    return { vH, v: { x: Math.sin(a) * vH, y: 0.6 * vH + Math.min(1, vH), z: -Math.cos(a) * vH }, w: { x: (rng() - 0.5) * 4, y: (rng() - 0.5) * 4, z: (rng() - 0.5) * 4 } };
   });
 }

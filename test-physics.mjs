@@ -86,4 +86,8 @@ assert.ok(meanVx(topB) > meanVx(botB), 'wyżej szybciej');
 seed = 3; const vel2 = throwVelocities({ blocks, holes, polygon: poly, floorZ: 100, az: 90, burden: 3.5, power: 2, rng });
 assert.ok(meanVx(vel2) > meanVx(vel) * 1.8, 'power skaluje prędkość');
 assert.ok(vel.every((v) => Number.isFinite(v.v.x + v.v.y + v.v.z + v.w.x) && v.v.y > 0), 'skończone, z unoszeniem');
+import { throwFactor } from './physics.js';
+assert.equal(throwFactor(0.1), 0); assert.equal(throwFactor(0.05), 0);
+assert.ok(Math.abs(throwFactor(0.5) - 1) < 1e-9);
+assert.ok(throwFactor(0.7) > 1.6 && throwFactor(0.7) < 2.1 && throwFactor(0.3) < 0.5 && throwFactor(5) <= 3);
 console.log('physics.js: OK');
