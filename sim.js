@@ -2,6 +2,7 @@
 // To ilustracja poglądowa, nie przewidywanie (nie służy do wyznaczania stref bezpieczeństwa ani zasięgu odłamków).
 import * as THREE from 'three';
 import { buildBlocks, buildGround, autoBlockSize, faceAzimuth, buildSurround } from './blocks.js';
+import { distToEdge } from './blast.js';
 import { sample as rrSample } from './fragmentation.js';
 import { createRapierEngine, createBallisticEngine, BlastSim, loadRapier, throwVelocities } from './physics.js';
 
@@ -45,6 +46,17 @@ export class BlastViz {
     let blocks = buildBlocks({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, size, holes });
     while (blocks.length > 9000) { size *= 1.25; blocks = buildBlocks({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, size, holes }); }
     if (!blocks.length) return { ok: false, message: 'Brak bryły nad rzędną docelową w obrysie.' };
+    // klin przed wolną ścianą (do jednego zabioru poza obrysem, od strony ściany) jest ładowaną rolą zabioru pierwszego rzędu: odpala się razem z serią
+    const azW = ctx.az ?? faceAzimuth({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, fallbackAz: ctx.fallbackAz ?? 0 });
+    const ux = Math.sin((azW * Math.PI) / 180), uy = Math.cos((azW * Math.PI) / 180);
+    const pc = ctx.polygon.reduce((a, p) => ({ x: a.x + p.x / ctx.polygon.length, y: a.y + p.y / ctx.polygon.length }), { x: 0, y: 0 });
+    const frontP = Math.max(...ctx.polygon.map((p) => (p.x - pc.x) * ux + (p.y - pc.y) * uy));
+    const Bw = ctx.burden || 3;
+    const isWedge = (b) => (b.x - pc.x) * ux + (b.y - pc.y) * uy > frontP - size * 0.5 && distToEdge(b.x, b.y, ctx.polygon) <= Bw * 1.02;
+    if (ctx.surround?.dist > 0) {
+      const w = buildSurround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, size, dist: Bw * 1.02, maxBlocks: 4000 }).blocks.filter(isWedge);
+      for (const b of w) { let best = 0, bd = Infinity; holes.forEach((h, i) => { const d = (h.x - b.x) ** 2 + (h.y - b.y) ** 2; if (d < bd) { bd = d; best = i; } }); b.hole = best; blocks.push(b); }
+    }
     this.blocks = blocks; this.size = size;
     this.height = Math.max(...blocks.map((b) => b.z + b.sz / 2)) - ctx.floorZ; // największa wysokość bryły nad poziomem podstawy
     this.az = ctx.az ?? faceAzimuth({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, fallbackAz: ctx.fallbackAz ?? 0 });
@@ -54,7 +66,7 @@ export class BlastViz {
     this.ground = buildGround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ });
     // otoczenie: nieodpalane bloczki skały wokół obrysu (z każdej strony), pełnią rolę ograniczenia dla ruchu urobku
     const sur = ctx.surround?.dist > 0 ? buildSurround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, size, dist: ctx.surround.dist, maxBlocks: ctx.surround.maxBlocks ?? 3000 }) : { blocks: [], size: 0 };
-    this.rock = sur.blocks; this.rockSize = sur.size; this.rockDist = sur.dist;
+    this.rock = sur.blocks.filter((b) => !(ctx.surround?.dist > 0 && isWedge(b))); this.rockSize = sur.size; this.rockDist = sur.dist;
     // teren dla Rapiera i na widoku: ścięty także w pasie otoczenia (tam stoi ruchoma skała); zamiennik balistyczny używa terenu bez cięcia
     this.groundB = this.ground;
     if (this.rock.length) this.ground = buildGround({ polygon: ctx.polygon, sampleZ: ctx.sampleZ, floorZ: ctx.floorZ, cutDist: sur.dist });

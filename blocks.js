@@ -88,7 +88,11 @@ export function buildGround({ polygon, sampleZ, floorZ, margin = 45, maxCells = 
       const x = x0 + i * dx, y = y0 + j * dx, t = sampleZ(x, y);
       // strefa wycięta jest o komórkę szersza od obrysu, żeby stroma rampa terenu nie wchodziła w skrajne bloczki
       const inside = pointInPolygon(x, y, polygon), de = inside ? 0 : distToEdge(x, y, polygon);
-      const cut = inside || de < dx * 1.01 || (cutDist > 0 && de <= cutDist + dx * 1.01);
+      let cut = inside || de < dx * 1.01 || (cutDist > 0 && de <= cutDist + dx * 1.01);
+      if (!cut && cutDist > 0 && t != null && t > floorZ + 0.3) { // dalej w skarpie (poza otoczeniem) teren też ścinamy, żeby resztka skarpy nie była niewidzialną ścianą
+        const gx = (sampleZ(x + dx, y) ?? t) - (sampleZ(x - dx, y) ?? t), gy = (sampleZ(x, y + dx) ?? t) - (sampleZ(x, y - dx) ?? t);
+        if (Math.hypot(gx, gy) / (2 * dx) > 0.35) cut = true;
+      }
       hg[j * nx + i] = cut ? Math.min(t ?? floorZ, floorZ) : (t ?? floorZ - 3);
     }
   }

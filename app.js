@@ -1027,7 +1027,7 @@ async function prepareViz() {
     burden: pat.burden, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
     az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
     power: num('simPower') || 1, blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
-    surround: { dist: sur * take, maxBlocks: 3000 },
+    surround: { dist: sur * take, maxBlocks: window.__surMax ?? 3000 },
   });
   if (!info.ok) { $('simInfo').textContent = info.message; state.model.visible = true; refreshTimeline(); return; }
   state.model.visible = false;
@@ -1219,7 +1219,7 @@ async function loadSample(withDesign = true) {
   // Rzędy biegną wzdłuż ściany (kierunek 180°), pierwszy rząd jest najbliżej wolnej ściany; obrys kończy się na krawędzi skarpy.
   $('burden').value = 4; $('spacing').value = 4; $('rowAz').value = 180; $('edge').value = 0; $('stagger').checked = false;
   state.types.normal.diameter = state.types.profile.diameter = 102;
-  state.polygon = [at(0.45, 0.25), at(0.55, 0.25), at(0.55, 0.75), at(0.45, 0.75)];
+  state.polygon = [at(0.45, 0.25), at(0.58, 0.25), at(0.58, 0.75), at(0.45, 0.75)];
   state.closed = true;
   generate();
   // ostatni rząd (od strony pozostawianej ściany) jako otwory profilowe, lekko pochylone ku ścianie

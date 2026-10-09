@@ -45,8 +45,8 @@ export function createRapierEngine(R, ground, blocks, opts = {}) {
     const desc = i >= movableFrom ? R.RigidBodyDesc.dynamic().setCanSleep(true).setSleeping(true) : R.RigidBodyDesc.fixed();
     const rb = world.createRigidBody(desc.setTranslation(p.x, p.y, p.z));
     const k = 0.9; // luz między bloczkami (spękany, rozluźniony urobek)
-    world.createCollider(R.ColliderDesc.cuboid((b.sx / 2) * k, (b.sz / 2) * k, (b.sy / 2) * k).setFriction(0.5).setRestitution(0.05).setDensity(2600), rb);
-    rb.setAngularDamping(3); rb.setLinearDamping(0.3); // nieregularna skała nie turla się jak kostki
+    world.createCollider(R.ColliderDesc.cuboid((b.sx / 2) * k, (b.sz / 2) * k, (b.sy / 2) * k).setFriction(0.3).setRestitution(0.05).setDensity(2600), rb);
+    rb.setAngularDamping(3); rb.setLinearDamping(0.1); // nieregularna skała nie turla się jak kostki
     return rb;
   });
   const fired = [];
@@ -140,7 +140,7 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
     const h = holes[b.hole], pf = h.volume > 0 ? h.mass / h.volume : 0.4;
     const wFace = 0.45 + 0.55 * Math.exp(-distanceToEdge(polygon, b.x, b.y, az) / (3 * burden));
     const hf = Math.min(Math.max((b.z - floorZ) / top, 0), 1);               // 0 przy spągu, 1 przy wierzchu ławy
-    const vH = 7 * power * Math.sqrt(Math.max(pf, 0.05) / 0.4) * wFace * (0.75 + 0.25 * hf) * (0.8 + 0.4 * rng());
+    const vH = 7 * power * Math.sqrt(Math.max(pf, 0.05) / 0.4) * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
     const a = a0 + ((rng() - 0.5) * 40 * Math.PI) / 180;
     return { vH, v: { x: Math.sin(a) * vH, y: 0.6 * vH + 1, z: -Math.cos(a) * vH }, w: { x: (rng() - 0.5) * 4, y: (rng() - 0.5) * 4, z: (rng() - 0.5) * 4 } };
   });
