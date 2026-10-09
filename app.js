@@ -1210,16 +1210,27 @@ async function loadSample(withDesign = true) {
   if (!withDesign) return;
   const { size } = state;
   const at = (fx, fy) => { const x = (fx - 0.5) * size.x, y = (fy - 0.5) * size.y; return { x, y, z: sampleZ(x, y) ?? 0 }; };
-  state.polygon = [at(0.1, 0.15), at(0.55, 0.15), at(0.55, 0.8), at(0.1, 0.8)]; // do krawędzi skarpy, żeby strzał miał wolną ścianę
+  // Przykład: 3 rzędy po 10 otworów, siatka 4 × 4 m (bez szachownicy), koronka 102 mm, emulsja.
+  // Rzędy biegną wzdłuż ściany (kierunek 180°), pierwszy rząd jest najbliżej wolnej ściany; obrys kończy się na krawędzi skarpy.
+  $('burden').value = 4; $('spacing').value = 4; $('rowAz').value = 180; $('edge').value = 0; $('stagger').checked = false;
+  state.types.normal.diameter = state.types.profile.diameter = 102;
+  state.polygon = [at(0.45, 0.25), at(0.55, 0.25), at(0.55, 0.75), at(0.45, 0.75)];
   state.closed = true;
   generate();
-  // przykład: rząd od strony skarpy (wschód) jako otwory profilowe, pochylone w stronę skarpy
+  // ostatni rząd (od strony pozostawianej ściany) jako otwory profilowe, lekko pochylone ku ścianie
   const last = Math.max(...state.grid.map((g) => g.row));
   state.grid.forEach((g) => { if (g.row === last) g.type = 'profile'; });
   Object.assign(state.types.profile, { incl: 12, inclAz: 90 });
   typeToInputs();
-  update();
-  status(`Przykład: syntetyczna ława, ${state.holes.length} otworów, ostatni rząd (zielone) oznaczono jako profilowe. Wczytaj własny model OBJ w kroku 1.`);
+  // sieć: 25 ms w rzędzie, 42 ms między rzędami (pierwszy rząd → drugi → trzeci)
+  $('autoPattern').value = 'rows'; $('autoAlong').value = 25; $('autoBetween').value = 42; $('netConn').value = 42;
+  autoNet();
+  // symulacja od razu włączona (bloczki wg czasu odpalenia); fragmentację i fizykę wybierasz w kroku 7
+  const c = state.polygon.reduce((s, p) => ({ x: s.x + p.x / state.polygon.length, y: s.y + p.y / state.polygon.length, z: s.z + p.z / state.polygon.length }), { x: 0, y: 0, z: 0 });
+  controls.target.set(c.x, c.z, -c.y); camera.position.set(c.x + 26, c.z + 20, -c.y + 30); controls.update();
+  $('simMode').value = 'time';
+  setSimMode();
+  status(`Przykład: ${state.holes.length} otworów w 3 rzędach (siatka 4×4 m, Ø102 mm, emulsja), łączniki 25 ms w rzędzie i 42 ms między rzędami. Naciśnij ▶ na pasku czasu. Wczytaj własny model OBJ w kroku 1.`);
 }
 
 // ---------- podpięcie zdarzeń ----------
