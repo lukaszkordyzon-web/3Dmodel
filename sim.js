@@ -228,6 +228,7 @@ export class BlastViz {
         const d = 0.35 * this.vel[i].vH * e;
         px += this.dirWorld.x * d; pz += this.dirWorld.z * d;
       }
+      const grow = phys ? 1 + 1.2 * (1 - Math.exp(-age / 900)) : 1 + 0.35 * e; // w fizyce odłamki rozchodzą się od bryły w locie (bryła niesie je dalej)
       const split = useFrags && fired && !this.whole[i];
       // blok
       if (split) s.set(0, 0, 0); else s.set(b.sx * 0.96, b.sz * 0.96, b.sy * 0.96);
@@ -242,7 +243,7 @@ export class BlastViz {
       if (useFrags) {
         for (let k = this.fragStart[i]; k < this.fragStart[i + 1]; k++) {
           if (!split) { s.set(0, 0, 0); p.set(0, 0, 0); q.identity(); m.compose(p, q, s); this.fragMesh.setMatrixAt(k, m); continue; }
-          o.set(this.fragOff[k * 3], this.fragOff[k * 3 + 1], this.fragOff[k * 3 + 2]).multiplyScalar(1 + 0.35 * e).applyQuaternion(q);
+          o.set(this.fragOff[k * 3], this.fragOff[k * 3 + 1], this.fragOff[k * 3 + 2]).multiplyScalar(grow).applyQuaternion(q);
           p.set(px + o.x, py + o.y, pz + o.z);
           s.set(this.fragDim[k * 3], this.fragDim[k * 3 + 1], this.fragDim[k * 3 + 2]);
           m.compose(p, q, s); this.fragMesh.setMatrixAt(k, m);
