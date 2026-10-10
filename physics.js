@@ -179,6 +179,14 @@ export const K_RM = 10, V_MAX = 40;
 // Bilans energii (wspólny dla skały i gliny): część η energii MW ponad próg luzowania przechodzi w energię ruchu urobku
 // (energia kinetyczna urobku ∝ energii wybuchu – Zhang 2016/2021). Na 1 m³: ½·ρ·v² = η·(pf − PF0)·Q, Q = 3,8 MJ/kg × RWS/100.
 export const Q_ANFO = 3.8e6, ETA = 0.04, PF0 = 0.1;
+// Impuls ciśnienia gazów z oporem materiału: ρ·B·v = (P − σt)·t → v ∝ (P − σt) / ρ.
+// Względem skały odniesienia (UCS_ref, ρ_ref): f = ((P − σt) / (P − σt,ref)) · (ρ_ref / ρ), σt ≈ UCS/10.
+// P – efektywne ciśnienie gazów w fazie ruchu urobku (założenie ~30 MPa); bez danych MWD f = 1.
+export const P_GAS = 30;
+export function impulseFactor(ucs, rho, ucsRef, rhoRef, P = P_GAS) {
+  const st = Math.max(0, ucs) / 10, stRef = Math.max(0, ucsRef) / 10;
+  return (Math.max(0.05 * P, P - st) / Math.max(0.05 * P, P - stRef)) * (rhoRef / rho);
+}
 export const energyVelocity = (pf, rws = 100, rho = 2600, eta = ETA) => Math.sqrt((2 * eta * Math.max(0, pf - PF0) * Q_ANFO * (rws / 100)) / rho);
 export const rmVelocity = (m, L, k = K_RM) => (m > 0 && L > 0 ? k * (Math.sqrt(m) / L) ** 1.3 : 0);
 // poniżej pf ≈ 0,1 ława tylko się luzuje: łagodne wygaszenie do pf = 0,3

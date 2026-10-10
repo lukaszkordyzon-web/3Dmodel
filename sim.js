@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { buildBlocks, buildGround, autoBlockSize, faceAzimuth, buildSurround } from './blocks.js';
 import { distToEdge } from './blast.js';
 import { sample as rrSample } from './fragmentation.js';
-import { createRapierEngine, createBallisticEngine, BlastSim, loadRapier, throwVelocities, neighborLists, relief3d, toWorld } from './physics.js';
+import { createRapierEngine, createBallisticEngine, BlastSim, loadRapier, throwVelocities, neighborLists, relief3d, toWorld, impulseFactor } from './physics.js';
 
 // Skala kolorów czasu (sekwencyjna, czytelna dla osób z zaburzeniami widzenia barw): ciemny fiolet, błękit, zieleń, żółty.
 const STOPS = [[0.267, 0.005, 0.329], [0.231, 0.318, 0.545], [0.128, 0.567, 0.551], [0.369, 0.789, 0.383], [0.993, 0.906, 0.144]];
@@ -93,18 +93,20 @@ export class BlastViz {
       this.blockAf = new Float32Array(blocks.length); this.blockRock = new Uint8Array(blocks.length).fill(3);
       let aMin = Infinity, aMax = -Infinity, nClay = 0;
       // udział energii uchodzącej przez glinę: fv = min(0,5; 0,15 × grubość gliny w otworze [m]) – założenie do kalibracji
-      const clayVol = {}, clayIdx = [], ventFrac = (hi) => Math.min(0.5, 0.15 * (ctx.mwd.clayLen?.[hi] ?? 0));
+      const clayIdx = [], clayK = [], ventFrac = (hi) => Math.min(0.5, 0.15 * (ctx.mwd.clayLen?.[hi] ?? 0));
       blocks.forEach((b, i) => {
         const f = ctx.mwd.field(b.x, b.y, b.z);
         if (!f) { this.blockAf[i] = 1; return; }
         this.blockAf[i] = f.A / ctx.mwd.meanA; aMin = Math.min(aMin, f.A); aMax = Math.max(aMax, f.A);
-        let k = Math.min(1.25, Math.max(0.8, 0.8 + 0.2 * (f.ucs / ctx.mwd.meanUcs))) * (1 - 0.25 * f.fi);
+        // impuls gazów z oporem materiału (względem średniej skały z MWD); szczeliny obniżają ciśnienie (ujście gazów)
+        const rhoRef = (ctx.mwd.rho ?? 2.6) * 1000, rhoI = f.clay ? 2000 : rhoRef;
+        let k = impulseFactor(f.ucs, rhoI, ctx.mwd.meanUcs, rhoRef) * (1 - 0.25 * f.fi);
         // rodzaj skały do kolorowania: 0 glina, 1 strefa spękana, 2 słaba/marglista, 3 zwięzła, 4 bardzo twarda
         this.blockRock[i] = f.clay ? 0 : f.fi > 0.45 ? 1 : f.ucs < 65 ? 2 : f.ucs < 150 ? 3 : 4;
         if (f.clay) {
           // glina: słaba, nie kruszy się (bryły), lżejsza (2,0 t/m³), lepka; prędkość liczona niżej z bilansu energii
           b.mat = 'clay'; b.rho = 2000; b.friction = 0.85; b.restitution = 0.03; nClay++;
-          clayVol[b.hole] = (clayVol[b.hole] ?? 0) + b.sx * b.sy * b.sz; clayIdx.push(i);
+          clayIdx.push(i); clayK.push(k);
           k = 1;
         } else {
           // otwór przez glinę: część fv energii ucieka gazami przez przekładkę → skała w tym otworze dostaje (1 − fv) energii: v × √(1 − fv)
@@ -114,17 +116,16 @@ export class BlastViz {
         }
         for (const V of [this.vel[i], this.velPhys[i]]) { V.v.x *= k; V.v.y *= k; V.v.z *= k; V.vH *= k; }
       });
-      // glina: ½·m·v² = η·(własna energia objętościowa + fv·energia otworu) → v = √(v_własna² + 2·fv·η·E_otworu / M_gliny)
-      const azr = (this.az * Math.PI) / 180, Q = 3.8e6, eta = ctx.eta ?? 0.04;
+      // glina: ta sama prędkość bazowa co skała w tym miejscu × czynnik impulsu (lżejsza i słabsza → szybsza), wydmuch poziomo ku ścianie
+      const azr = (this.az * Math.PI) / 180;
       let vClaySum = 0;
-      for (const i of clayIdx) {
-        const b = blocks[i], h = holes[b.hole], fv = ventFrac(b.hole), M = (clayVol[b.hole] || 1) * 2000;
-        const pf = h.volume > 0 ? h.mass / h.volume : 0.4, rws = h.rws ?? 100;
-        const vOwn = Math.sqrt((2 * eta * Math.max(0, pf - 0.1) * Q * (rws / 100)) / 2000);
-        const vh = Math.min(40, Math.sqrt(vOwn ** 2 + (2 * fv * eta * h.mass * Q * (rws / 100)) / M)) * (ctx.power ?? 1);
-        for (const V of [this.vel[i], this.velPhys[i]]) { V.v.x = Math.sin(azr) * vh; V.v.z = -Math.cos(azr) * vh; V.v.y = Math.max(V.v.y, 0.15 * vh); V.vH = vh; } // podrzut (spęcznienie, kratering) zostaje
-        vClaySum += vh;
-      }
+      clayIdx.forEach((i, j) => {
+        for (const V of [this.vel[i], this.velPhys[i]]) {
+          const vh = Math.min(40, Math.max(Math.hypot(V.v.x, V.v.z), 0.6 * Math.hypot(V.v.x, V.v.y, V.v.z)) * clayK[j]);
+          V.v.x = Math.sin(azr) * vh; V.v.z = -Math.cos(azr) * vh; V.v.y = Math.max(V.v.y, 0.15 * vh); V.vH = vh; // podrzut zostaje
+        }
+        vClaySum += this.velPhys[i].vH;
+      });
       this.mwdInfo = { aMin, aMax, nClay, vClay: clayIdx.length ? vClaySum / clayIdx.length : 0 };
     }
     this.dirWorld = { x: Math.sin(az), z: -Math.cos(az) };
