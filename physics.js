@@ -176,12 +176,16 @@ export const HEAVE = 6; // [m/s] spęcznienie: każdy odstrzał podnosi się i o
 // Richards & Moore (2004): prędkość wyrzutu v = k·(√m / B)^1,3 (m – ładunek [kg/m], B – zabiór lub przybitka [m]).
 // k dla flyrocku 13,5 (skała miękka) … 27 (twarda) – górna obwiednia; dla ruchu masy przyjmujemy mniejsze k (domyślnie 10, do kalibracji).
 export const K_RM = 10, V_MAX = 40;
+// Bilans energii (wspólny dla skały i gliny): część η energii MW ponad próg luzowania przechodzi w energię ruchu urobku
+// (energia kinetyczna urobku ∝ energii wybuchu – Zhang 2016/2021). Na 1 m³: ½·ρ·v² = η·(pf − PF0)·Q, Q = 3,8 MJ/kg × RWS/100.
+export const Q_ANFO = 3.8e6, ETA = 0.04, PF0 = 0.1;
+export const energyVelocity = (pf, rws = 100, rho = 2600, eta = ETA) => Math.sqrt((2 * eta * Math.max(0, pf - PF0) * Q_ANFO * (rws / 100)) / rho);
 export const rmVelocity = (m, L, k = K_RM) => (m > 0 && L > 0 ? k * (Math.sqrt(m) / L) ** 1.3 : 0);
 // poniżej pf ≈ 0,1 ława tylko się luzuje: łagodne wygaszenie do pf = 0,3
 export const pfGate = (pf) => Math.min(1, Math.max(0, (pf - 0.1) / 0.2));
 export const PF_NONE = 0.1, PF_REF = 0.5, V_REF = 5; // V_REF [m/s]: prędkość pozioma przy pf = PF_REF (bez losowości i wpływu ściany)
 export function heave(pf, power, hf, u = 0.5, vBase = null) { // vBase: prędkość R&M otworu (bez wpływu ściany); podrzut = 0,8·vBase
-  const base = vBase != null ? 0.8 * vBase * pfGate(pf) : HEAVE * throwFactor(pf);
+  const base = vBase != null ? 0.8 * vBase : HEAVE * throwFactor(pf);
   return base * power * (0.4 + 0.6 * hf) * (0.85 + 0.3 * u);
 }
 export function throwFactor(pf) {
@@ -219,7 +223,7 @@ export function reliefDirs(holes, R) {
   });
 }
 
-export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3, spacing = burden, power = 1, relief = 0.8, craterK = 1, kRM = K_RM, rng = Math.random }) {
+export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3, spacing = burden, power = 1, relief = 0.8, craterK = 1, kRM = K_RM, eta = ETA, rhoRock = 2600, rng = Math.random }) {
   const a0 = (az * Math.PI) / 180;
   const top = Math.max(...blocks.map((b) => b.z + b.sz / 2)) - floorZ || 1;
   const crater = holes.map((h) => (h.stemTop != null ? craterFactor(sdob(h)) : 0));
@@ -228,9 +232,10 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
     const h = holes[b.hole], pf = h.volume > 0 ? h.mass / h.volume : 0.4;
     const wFace = 0.45 + 0.55 * Math.exp(-distanceToEdge(polygon, b.x, b.y, az) / (3 * burden));
     const hf = Math.min(Math.max((b.z - floorZ) / top, 0), 1);               // 0 przy spągu, 1 przy wierzchu ławy
-    const useRM = h.mPerM > 0 && burden > 0;
-    const vBase = useRM ? rmVelocity(h.mPerM, burden, kRM) : null;           // Richards & Moore (face burst) dla otworu
-    const vH = (useRM ? vBase * pfGate(pf) : V_REF * throwFactor(pf)) * power * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
+    const useE = h.rws != null, useRM = !useE && h.mPerM > 0 && burden > 0;
+    // prędkość bazowa: bilans energii (gęstość skały ρ), awaryjnie Richards & Moore albo krzywa pf
+    const vBase = useE ? energyVelocity(pf, h.rws, rhoRock, eta) : useRM ? rmVelocity(h.mPerM, burden, kRM) * pfGate(pf) : null;
+    const vH = (vBase != null ? vBase : V_REF * throwFactor(pf)) * power * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
     // kierunek: azymut nachylenia otworu (otwór pionowy – ku wolnej ścianie), wektor prostopadły do osi otworu:
     // przy nachyleniu α od pionu wylot jest pod kątem α nad poziomem; niewielkie rozproszenie ±10°
     const inclined = h.incl > 0.5 && h.inclAz != null;

@@ -711,7 +711,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm', 'mwdWapien', 'mwdZwiezla', 'mwdClay', 'simColor'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm', 'simEta', 'mwdWapien', 'mwdZwiezla', 'mwdClay', 'simColor'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -1100,10 +1100,11 @@ async function prepareViz() {
     holes: state.holes.map((h) => {
       const top = h.segments.find((x) => x.kind === 'charge'); // najwyższy ładunek: od niego liczymy przybitkę i SDoB
       const tp = state.types[h.type];
-      return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter, mPerM: h.chargeLength > 0 ? h.mass / h.chargeLength : 0, incl: tp.incl ?? 0, inclAz: tp.inclAz ?? null,
+      return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter, mPerM: h.chargeLength > 0 ? h.mass / h.chargeLength : 0, rws: h.mass > 0 ? Object.entries(h.byProduct).reduce((s, [id, m]) => s + m * (state.products.find((p) => p.id === id)?.rws ?? 100), 0) / h.mass : 100, incl: tp.incl ?? 0, inclAz: tp.inclAz ?? null,
         stemTop: top ? top.from : null, kgPerM: top ? top.mass / Math.max(1e-6, top.to - top.from) : 0 };
     }),
-    mwd: ensureMwd() ? { field: mwdField, meanA: state.mwd.meanA, meanUcs: state.mwd.meanUcs } : null,
+    mwd: ensureMwd() ? { field: mwdField, meanA: state.mwd.meanA, meanUcs: state.mwd.meanUcs, clayLen: state.mwd.holes.map((o) => o.it.clay.filter(Boolean).length * 0.1) } : null,
+    eta: $('simEta').value === '' ? 0.04 : Math.max(0.001, num('simEta') / 100), rockRho: num('rockRho') || 2.6,
     burden: pat.burden, spacing: pat.spacing, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
     az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
     power: num('simPower') || 1, relief: $('simRelief').value === '' ? 0.8 : Math.max(0, num('simRelief')), crater: $('simCrater').value === '' ? 1 : Math.max(0, num('simCrater')), kRM: $('simKrm').value === '' ? 10 : Math.max(0, num('simKrm')), blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
@@ -1136,7 +1137,7 @@ function describeViz(info, kind) {
   const around = info.rock ? ` Otoczenie skały: ${info.rock.toLocaleString('pl')} bloczków do ${fmt(info.rockDist, 0)} m od obrysu, takie same jak bloczki serii (zadane ${fmt(num("surround"), 1)} × zabiór ${fmt(vb.take, 0)} m).` : '';
   const sd = holeSdobs(), nCr = sd.filter((x) => x < SDOB_SAFE).length;
   const crater = nCr ? ` Krótka przybitka: ${nCr} z ${sd.length} otworów ma SDoB < ${fmt(SDOB_SAFE, 1)} (min ${fmt(Math.min(...sd), 2)}), bloczki nad ładunkiem wylatują w górę.` : '';
-  const mwdTxt = info.mwd ? ` MWD: współczynnik skały bloczków ${fmt(info.mwd.aMin, 1)}–${fmt(info.mwd.aMax, 1)} (warstwy i spękania z wiercenia)${info.mwd.nClay ? `, glina: ${info.mwd.nClay} bloczków (brązowe, nie kruszą się, lżejsze i lepkie)` : ''}.` : '';
+  const mwdTxt = info.mwd ? ` MWD: współczynnik skały bloczków ${fmt(info.mwd.aMin, 1)}–${fmt(info.mwd.aMax, 1)} (warstwy i spękania z wiercenia)${info.mwd.nClay ? `, glina: ${info.mwd.nClay} bloczków, wydmuch z bilansu energii średnio ${fmt(info.mwd.vClay, 1)} m/s` : ''}.` : '';
   $('simInfo').textContent = `${parts.join(', ')}.${base}${around}${crater}${mwdTxt}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
 }
 
@@ -1417,7 +1418,7 @@ for (const id of ['surfaceCat', 'inholeCat']) $(id).addEventListener('input', re
 $('colorMode').addEventListener('change', () => { state.colorMode = $('colorMode').value; drawOverlay(); refreshTimeline(); });
 $('delayWindow').addEventListener('input', () => update());
 $('simMode').addEventListener('change', setSimMode);
-for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'simKrm', 'surround']) $(id).addEventListener('input', queueViz);
+for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'simKrm', 'simEta', 'surround']) $(id).addEventListener('input', queueViz);
 $('volBase').addEventListener('change', queueViz);
 for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
 $('useTiming').addEventListener('change', () => update());
