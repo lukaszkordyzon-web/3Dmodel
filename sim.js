@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { buildBlocks, buildGround, autoBlockSize, faceAzimuth, buildSurround } from './blocks.js';
 import { distToEdge } from './blast.js';
 import { sample as rrSample } from './fragmentation.js';
-import { createRapierEngine, createBallisticEngine, BlastSim, loadRapier, throwVelocities } from './physics.js';
+import { createRapierEngine, createBallisticEngine, BlastSim, loadRapier, throwVelocities, neighborLists, relief3d, toWorld } from './physics.js';
 
 // Skala kolorów czasu (sekwencyjna, czytelna dla osób z zaburzeniami widzenia barw): ciemny fiolet, błękit, zieleń, żółty.
 const STOPS = [[0.267, 0.005, 0.329], [0.231, 0.318, 0.545], [0.128, 0.567, 0.551], [0.369, 0.789, 0.383], [0.993, 0.906, 0.144]];
@@ -82,7 +82,11 @@ export class BlastViz {
 
     // prędkości początkowe (układ sceny): model w physics.js (kierunek ku ścianie, większe przy ścianie i u góry ławy)
     const rng = mulberry32(777), az = (this.az * Math.PI) / 180, B = ctx.burden || 3;
-    this.vel = throwVelocities({ blocks, holes, polygon: ctx.polygon, floorZ: ctx.floorZ, az: this.az, burden: B, spacing: ctx.spacing ?? B, relief: ctx.relief ?? 0.8, craterK: ctx.crater ?? 1, power: ctx.power ?? 1, rng });
+    const vArgs = { blocks, holes, polygon: ctx.polygon, floorZ: ctx.floorZ, az: this.az, burden: B, spacing: ctx.spacing ?? B, relief: ctx.relief ?? 0.8, craterK: ctx.crater ?? 1, power: ctx.power ?? 1 };
+    this.vel = throwVelocities({ ...vArgs, rng });
+    // w fizyce (Rapier) odciążenie liczymy w 3D w chwili odpalenia (sąsiedzi także nad i pod bloczkiem), więc tu bez odciążenia poziomego
+    this.velPhys = throwVelocities({ ...vArgs, relief: 0, rng: mulberry32(777) });
+    this.relief = ctx.relief ?? 0.8;
     this.dirWorld = { x: Math.sin(az), z: -Math.cos(az) };
 
     // rozpad: układ odłamków wg Rosina-Rammlera
@@ -172,7 +176,15 @@ export class BlastViz {
     const engine = R ? createRapierEngine(R, this.ground, [...this.blocks, ...this.rock], { movableFrom: this.blocks.length }) : createBallisticEngine(this.groundB, this.blocks);
     this.engineKind = engine.kind;
     this.poses = new Float32Array(this.blocks.length * 7);
-    this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.vel[i].v, w: this.vel[i].w })));
+    if (engine.kind === 'rapier') {
+      // sąsiedzi 3D (promień ≈ 1,8 bloczka); „odjechał” = przesunięty o ponad 0,4 rozmiaru od miejsca startu
+      const n = this.blocks.length, pos = new Float32Array(3 * n), out = new Float32Array(7), fired = new Uint8Array(n);
+      this.blocks.forEach((b, i) => { const w = toWorld(b.x, b.y, b.z); pos[3 * i] = w.x; pos[3 * i + 1] = w.y; pos[3 * i + 2] = w.z; });
+      const nbrs = neighborLists(pos, 1.8 * this.size), lim = 0.4 * this.size;
+      const moved = (j) => { if (!fired[j]) return false; engine.pose(j, out, 0); return Math.hypot(out[0] - pos[3 * j], out[1] - pos[3 * j + 1], out[2] - pos[3 * j + 2]) > lim; };
+      this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.velPhys[i].v, w: this.velPhys[i].w })),
+        (f) => { fired[f.i] = 1; return relief3d(f.i, f.v, pos, nbrs, moved, this.relief); });
+    } else this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.vel[i].v, w: this.vel[i].w })));
     return this.engineKind;
   }
 

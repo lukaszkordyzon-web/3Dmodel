@@ -109,8 +109,8 @@ const norm = (q) => { const l = Math.hypot(...q) || 1; return q.map((x) => x / l
 
 // Symulacja w czasie: odpalenia w zadanych chwilach (ms), krok stały 1/60 s.
 export class BlastSim {
-  constructor(engine, fires) { // fires: [{ i, tMs, v: {x,y,z}, w: {x,y,z} }] (układ sceny)
-    this.engine = engine;
+  constructor(engine, fires, adjust = null) { // fires: [{ i, tMs, v: {x,y,z}, w: {x,y,z} }] (układ sceny); adjust(f) → v w chwili odpalenia
+    this.engine = engine; this.adjust = adjust;
     this.fires = [...fires].sort((a, b) => a.tMs - b.tMs);
     this.t = 0; this.next = 0;
   }
@@ -121,7 +121,7 @@ export class BlastSim {
       const tn = this.t + dt;
       while (this.next < this.fires.length && this.fires[this.next].tMs <= tn) {
         const f = this.fires[this.next++];
-        this.engine.fire(f.i, f.v, f.w);
+        this.engine.fire(f.i, this.adjust ? this.adjust(f) : f.v, f.w);
       }
       this.engine.step(1 / 60);
       this.t = tn; steps++;
@@ -130,6 +130,40 @@ export class BlastSim {
   }
 }
 
+
+// Odciążenie 3D w chwili odpalenia: sąsiednie bloczki (także nad i pod, w promieniu R), które już odpaliły i odjechały,
+// zostawiły wolne miejsce; prędkość bloczka skręca w jego stronę (wagą relief), wartość prędkości bez zmian.
+// pos: Float32Array 3·n (pozycje startowe, układ sceny), moved(j) → czy bloczek j już opuścił swoje miejsce.
+export function neighborLists(pos, R) {
+  const n = pos.length / 3, cell = R, grid = new Map(), key = (a, b, c) => `${a},${b},${c}`;
+  for (let i = 0; i < n; i++) {
+    const k = key(Math.floor(pos[3 * i] / cell), Math.floor(pos[3 * i + 1] / cell), Math.floor(pos[3 * i + 2] / cell));
+    (grid.get(k) ?? grid.set(k, []).get(k)).push(i);
+  }
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const cx = Math.floor(pos[3 * i] / cell), cy = Math.floor(pos[3 * i + 1] / cell), cz = Math.floor(pos[3 * i + 2] / cell), L = [];
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+      for (const j of grid.get(key(cx + a, cy + b, cz + c)) ?? []) {
+        if (j !== i && Math.hypot(pos[3 * j] - pos[3 * i], pos[3 * j + 1] - pos[3 * i + 1], pos[3 * j + 2] - pos[3 * i + 2]) <= R) L.push(j);
+      }
+    }
+    out.push(L);
+  }
+  return out;
+}
+export function relief3d(i, v, pos, nbrs, moved, relief) {
+  let x = 0, y = 0, z = 0;
+  for (const j of nbrs[i]) {
+    if (!moved(j)) continue;
+    const dx = pos[3 * j] - pos[3 * i], dy = pos[3 * j + 1] - pos[3 * i + 1], dz = pos[3 * j + 2] - pos[3 * i + 2], d = Math.hypot(dx, dy, dz);
+    x += dx / d; y += dy / d; z += dz / d;
+  }
+  const L = Math.hypot(x, y, z), sp = Math.hypot(v.x, v.y, v.z);
+  if (L < 1e-6 || sp < 1e-6 || !(relief > 0)) return v;
+  const ux = v.x / sp + (relief * x) / L, uy = v.y / sp + (relief * y) / L, uz = v.z / sp + (relief * z) / L, U = Math.hypot(ux, uy, uz);
+  return U < 1e-6 ? v : { x: (ux / U) * sp, y: (uy / U) * sp, z: (uz / U) * sp };
+}
 
 // Prędkości początkowe bloczków (układ sceny) w chwili odpalenia. Model poglądowy, nie przewidywanie:
 // kierunek ku wolnej ścianie, większe przy ścianie i u góry ławy, skalowane jednostkowym zużyciem MW i parametrem power.

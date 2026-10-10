@@ -111,6 +111,21 @@ import { reliefDirs } from './physics.js';
   const mx = (v) => v.filter((_, i) => bl[i].hole > 0).reduce((s, x) => s + x.v.x, 0);
   assert.ok(mx(v1) < mx(v0) - 50, 'bloczki późniejszych otworów zbaczają ku otwarciu serii');
 }
+// odciążenie 3D: sąsiad nad bloczkiem odjechał → prędkość skręca w górę, wartość bez zmian
+import { neighborLists, relief3d } from './physics.js';
+{
+  const pos = Float32Array.from([0, 0, 0, 0, 1, 0, 1, 0, 0, 5, 5, 5]);
+  const nb = neighborLists(pos, 1.5);
+  assert.deepEqual([...nb[0]].sort(), [1, 2]); assert.equal(nb[3].length, 0);
+  const v = { x: 4, y: 0, z: 0 };
+  const up = relief3d(0, v, pos, nb, (j) => j === 1, 1);
+  assert.ok(up.y > 2 && Math.abs(Math.hypot(up.x, up.y, up.z) - 4) < 1e-9, 'skręt w górę, ta sama prędkość');
+  assert.deepEqual(relief3d(0, v, pos, nb, () => false, 1), v);
+  // w silniku: odpalenie z korektą w chwili strzału
+  const eng = createRapierEngine(R, ground, blocks);
+  const sim = new BlastSim(eng, [{ i: 0, tMs: 10, v, w: { x: 0, y: 0, z: 0 } }], (f) => relief3d(0, f.v, pos, nb, (j) => j === 1, 1));
+  sim.advanceTo(200); const o = new Float32Array(7); eng.pose(0, o, 0); assert.ok([...o].every(Number.isFinite)); eng.dispose();
+}
 // krótka przybitka: SDoB i wyrzut w górę bloczków nad ładunkiem
 import { sdob, craterFactor } from './physics.js';
 {
