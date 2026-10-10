@@ -86,7 +86,7 @@ export class BlastViz {
     this.vel = throwVelocities({ ...vArgs, rng });
     // w fizyce (Rapier) odciążenie liczymy w 3D w chwili odpalenia (sąsiedzi także nad i pod bloczkiem), więc tu bez odciążenia poziomego
     this.velPhys = throwVelocities({ ...vArgs, relief: 0, rng: mulberry32(777) });
-    this.relief = ctx.relief ?? 0.8;
+    this.relief = ctx.relief ?? 0.8; this.craterK = ctx.crater ?? 1;
     this.dirWorld = { x: Math.sin(az), z: -Math.cos(az) };
 
     // rozpad: układ odłamków wg Rosina-Rammlera
@@ -184,8 +184,17 @@ export class BlastViz {
       // (np. górna warstwa wcześniejszego rzędu albo wyrzucone w górę przy krótkiej przybitce), ciągną mocniej – stąd też składowa Z
       const nbrs = neighborLists(pos, 1.8 * this.size);
       const moved = (j) => { if (!fired[j]) return 0; engine.pose(j, out, 0); const d = Math.hypot(out[0] - pos[3 * j], out[1] - pos[3 * j + 1], out[2] - pos[3 * j + 2]); return d > 0.03 ? d : 0; };
+      // „sąsiad-powietrze” nad ławą: dla bloczków przy powierzchni wolna przestrzeń w górę, z wagą zależną od przybitki
+      // (czynnik krateringu z SDoB otworu × „Wpływ przybitki na wyrzut w górę”); przy dobrej przybitce waga 0
+      const colTop = new Map(), ck = (b) => `${b.x.toFixed(2)},${b.y.toFixed(2)}`;
+      for (const b of this.blocks) colTop.set(ck(b), Math.max(colTop.get(ck(b)) ?? -Infinity, b.z + b.sz / 2));
+      const reach = 1.8 * this.size, AIR = 1.5; // AIR [m]: waga powietrza jak sąsiad, który odjechał o 1,5 m
+      const air = this.blocks.map((b, i) => {
+        const depth = colTop.get(ck(b)) - (b.z + b.sz / 2), cf = this.velPhys[i].crater ?? 0;
+        return cf > 0 && depth < reach ? AIR * cf * this.craterK * (1 - depth / reach) : 0;
+      });
       this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.velPhys[i].v, w: this.velPhys[i].w })),
-        (f) => { fired[f.i] = 1; return relief3d(f.i, f.v, pos, nbrs, moved, this.relief); });
+        (f) => { fired[f.i] = 1; return relief3d(f.i, f.v, pos, nbrs, moved, this.relief, air[f.i] > 0 ? { x: 0, y: air[f.i], z: 0 } : null); });
     } else this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.vel[i].v, w: this.vel[i].w })));
     return this.engineKind;
   }

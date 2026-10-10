@@ -152,8 +152,8 @@ export function neighborLists(pos, R) {
   }
   return out;
 }
-export function relief3d(i, v, pos, nbrs, moved, relief) {
-  let x = 0, y = 0, z = 0;
+export function relief3d(i, v, pos, nbrs, moved, relief, bias = null) {
+  let x = bias?.x ?? 0, y = bias?.y ?? 0, z = bias?.z ?? 0; // bias: dodatkowa „wolna przestrzeń” (np. powietrze nad ławą), w tych samych jednostkach co wagi sąsiadów
   for (const j of nbrs[i]) {
     const wj = +moved(j); // waga: true/false albo przesunięcie sąsiada [m] – im dalej odjechał, tym więcej miejsca
     if (!(wj > 0)) continue;
@@ -162,7 +162,8 @@ export function relief3d(i, v, pos, nbrs, moved, relief) {
   }
   const L = Math.hypot(x, y, z), sp = Math.hypot(v.x, v.y, v.z);
   if (L < 1e-6 || sp < 1e-6 || !(relief > 0)) return v;
-  const ux = v.x / sp + (relief * x) / L, uy = v.y / sp + (relief * y) / L, uz = v.z / sp + (relief * z) / L, U = Math.hypot(ux, uy, uz);
+  const k = relief * Math.min(1, L / 1.0); // siła skrętu rośnie z „ilością” wolnej przestrzeni (≈ 1 m przesunięcia sąsiadów = pełna waga)
+  const ux = v.x / sp + (k * x) / L, uy = v.y / sp + (k * y) / L, uz = v.z / sp + (k * z) / L, U = Math.hypot(ux, uy, uz);
   return U < 1e-6 ? v : { x: (ux / U) * sp, y: (uy / U) * sp, z: (uz / U) * sp };
 }
 
