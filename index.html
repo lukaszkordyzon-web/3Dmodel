@@ -201,6 +201,7 @@
           <label>Dokładność wiercenia σ [m]<input type="number" id="drillSd" value="0.2" min="0" step="0.05"></label>
           <label>Nadgabaryt powyżej [cm]<input type="number" id="oversize" value="100" min="10" step="5"></label>
           <label>Rozrzut zapalników [% czasu]<input type="number" id="detScatter" value="2" min="0" step="0.5"></label>
+          <label class="check"><input type="checkbox" id="useTiming" checked> Wpływ opóźnień (szacunek wg Cunninghama 2005, niekalibrowany)</label>
         </div>
         <dl id="fragStats"></dl>
         <canvas id="fragChart" height="150"></canvas>

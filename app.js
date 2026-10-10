@@ -710,7 +710,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -719,7 +719,7 @@ function projectToJson() {
     offset: { x: num('offX'), y: num('offY'), z: num('offZ') },
     modelCenter: realOf({ x: 0, y: 0, z: 0 }),
     pattern: readPattern(), types: state.types, editType: state.editType, products: state.products,
-    net: { starts: state.net.starts, links: state.net.links }, ui: Object.fromEntries(UI_IDS.map((k) => [k, $(k).value])),
+    net: { starts: state.net.starts, links: state.net.links }, ui: Object.fromEntries(UI_IDS.map((k) => [k, $(k).type === 'checkbox' ? $(k).checked : $(k).value])),
     polygon: state.polygon.map(R), closed: state.closed, grid: state.grid.map(R), manual: state.manual.map(R),
     xml: Object.fromEntries(['xmlName', 'xmlProject', 'xmlCrs', 'xmlComment', 'xmlTypeNormal', 'xmlTypeProfile'].map((k) => [k, $(k).value])),
   }, null, 2);
@@ -743,7 +743,7 @@ function loadProjectFromText(text) {
   state.manual = (d.manual ?? []).map(localOf);
   state.profile = null; state.profA = null;
   state.net = { starts: d.net?.starts ?? [], links: d.net?.links ?? [], pending: null };
-  for (const [k, v] of Object.entries(d.ui ?? {})) if ($(k) && v != null) $(k).value = v;
+  for (const [k, v] of Object.entries(d.ui ?? {})) if ($(k) && v != null) { if ($(k).type === 'checkbox') $(k).checked = v === true; else $(k).value = v; }
   state.colorMode = $('colorMode').value; refreshCatalogs();
   state.planId = d.planId || newPlanId();
   state.nextHid = Math.max(d.nextHid ?? 1, 1 + Math.max(0, ...[...state.grid, ...state.manual].map((s) => s.hid ?? 0)));
@@ -933,9 +933,10 @@ function updateFrag() {
   // opóźnienia: czynnik czasu A_t (opóźnienie odciążające względem T_max) i rozrzut zapalników (obniża n)
   const rhoR = num('rockRho') || 2.6, cp = Math.sqrt((num('rockE') * 1e9) / (rhoR < 100 ? rhoR * 1000 : rhoR)) / 1000; // km/s (gęstość w t/m³ lub kg/m³)
   const T = reliefDelay(state.holes, 1.6 * Math.max(pat.burden, pat.spacing)), Tmax = tMaxMs(pat.burden, cp);
-  const At = T != null && cp > 0 ? timingFactor(T, Tmax) : 1;
+  const useT = $('useTiming').checked;
+  const At = useT && T != null && cp > 0 ? timingFactor(T, Tmax) : 1;
   const sig = (num('detScatter') / 100) * mean((h) => h.inholeMs ?? 500) * Math.SQRT2; // rozrzut różnicy czasów dwóch sąsiednich otworów
-  const Rs = T > 0 ? sig / T : 0, ns = T != null ? scatterFactor(Rs) : 1;
+  const Rs = T > 0 ? sig / T : 0, ns = useT && T != null ? scatterFactor(Rs) : 1;
   const x50 = r0.x50 * At, n = Math.min(Math.max(r0.n * ns, 0.3), 3);
   const r = { x50, n, xc: x50 / Math.LN2 ** (1 / n), x50base: r0.x50, nBase: r0.n };
   const xo = num('oversize') || 100;
@@ -945,10 +946,10 @@ function updateFrag() {
     ['Współczynnik skały A', fmt(A, 1)], ['Średnia siła MW (ANFO = 100)', fmt(rws, 0)], ['Zużycie jednostkowe', `${fmt(f.pf, 2)} kg/m³`],
     ['X50 (rozmiar mediany)', `${fmt(f.x50, 0)} cm`], ['X80', `${fmt(f.x80, 0)} cm`], ['Wskaźnik jednorodności n', fmt(f.n, 2)],
     [`Nadgabaryt > ${fmt(xo, 0)} cm`, `${fmt(f.oversizePct, 1)} %`],
-    ...(f.T != null ? [
+    ...(!$('useTiming').checked ? [['Opóźnienia', 'wpływ wyłączony']] : f.T != null ? [
       ['Opóźnienie odciążające T (mediana)', `${fmt(f.T, 0)} ms`],
       ['T_max = 15,6·B/c_p', `${fmt(f.Tmax, 1)} ms (c_p ${fmt(f.cp, 2)} km/s)`],
-      ['Czynnik czasu A_t (mnoży X50)', `${fmt(f.At, 2)} – ${f.T < 0.7 * f.Tmax ? 'opóźnienie za krótkie, grubiej' : f.T <= 1.5 * f.Tmax ? 'blisko optimum' : 'długie opóźnienie, otwory pracują osobno'}`],
+      ['Czynnik czasu A_t (mnoży X50, szacunek niekalibrowany)', `${fmt(f.At, 2)} – ${f.T < 0.7 * f.Tmax ? 'opóźnienie za krótkie, grubiej' : f.T <= 1.5 * f.Tmax ? 'blisko optimum' : 'długie opóźnienie, otwory pracują osobno'}`],
       ['Rozrzut zapalników σ/T → n ×', `${fmt(f.Rs, 2)} → ${fmt(f.ns, 2)}`],
       ['X50 / n bez wpływu opóźnień', `${fmt(f.x50base, 0)} cm / ${fmt(f.nBase, 2)}`],
     ] : [['Opóźnienia', 'brak sieci – bez poprawki czasowej']]),
@@ -1326,6 +1327,7 @@ $('simMode').addEventListener('change', setSimMode);
 for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'surround']) $(id).addEventListener('input', queueViz);
 $('volBase').addEventListener('change', queueViz);
 for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
+$('useTiming').addEventListener('change', () => update());
 $('tlPlay').onclick = togglePlay;
 $('tlReset').onclick = resetClock;
 $('tlSlider').addEventListener('input', () => {
