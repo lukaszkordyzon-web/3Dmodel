@@ -90,4 +90,17 @@ import { throwFactor } from './physics.js';
 assert.equal(throwFactor(0.1), 0); assert.equal(throwFactor(0.05), 0);
 assert.ok(Math.abs(throwFactor(0.5) - 1) < 1e-9);
 assert.ok(throwFactor(0.7) > 1.6 && throwFactor(0.7) < 2.1 && throwFactor(0.3) < 0.5 && throwFactor(5) <= 3);
+// krótka przybitka: SDoB i wyrzut w górę bloczków nad ładunkiem
+import { sdob, craterFactor } from './physics.js';
+{
+  const s05 = sdob({ stemTop: 0.5, kgPerM: 9, diameterMm: 102 }), s24 = sdob({ stemTop: 2.4, kgPerM: 9, diameterMm: 102 }), s4 = sdob({ stemTop: 4, kgPerM: 9, diameterMm: 102 });
+  assert.ok(s05 < 0.6 && s24 > 1.3 && s4 > 1.4, `SDoB ${s05} ${s24} ${s4}`);
+  assert.equal(craterFactor(s4), 0); assert.equal(craterFactor(s05), 1);
+  const h0 = { x: 5, y: 3, z: 103, mass: 70, volume: 42, diameterMm: 102, kgPerM: 9 };
+  const vy = (stemTop) => { seed = 5; const v = throwVelocities({ blocks, holes: [{ ...h0, stemTop }], polygon: poly, floorZ: 100, az: 90, burden: 3.5, rng }); return Math.max(...v.map((x) => x.v.y)); };
+  assert.ok(vy(0.5) > vy(4) + 8, 'krótka przybitka: bloczek nad otworem wylatuje w górę');
+  seed = 5; const vNo = throwVelocities({ blocks, holes: [{ ...h0, stemTop: 4 }], polygon: poly, floorZ: 100, az: 90, burden: 3.5, rng });
+  seed = 5; const vOld = throwVelocities({ blocks, holes: [{ x: 5, y: 3, mass: 70, volume: 42 }], polygon: poly, floorZ: 100, az: 90, burden: 3.5, rng });
+  assert.deepEqual(vNo.map((x) => x.v), vOld.map((x) => x.v), 'długa przybitka nie zmienia prędkości');
+}
 console.log('physics.js: OK');

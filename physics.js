@@ -141,15 +141,44 @@ export function throwFactor(pf) {
   return Math.min(3, ((pf - PF_NONE) / (PF_REF - PF_NONE)) ** 1.5);
 }
 
+// Wyrzut w górę przy krótkiej przybitce (kratering): skalowana głębokość ukrycia ładunku SDoB = Dsb / Wt^(1/3) [m/kg^(1/3)],
+// Dsb = przybitka do góry ładunku + połowa 10 średnic, Wt = masa 10 średnic ładunku u góry (Chiappetta, McKenzie).
+// SDoB ≥ 1,4 – ładunek zamknięty, bez wyrzutu w górę; 0,92 – typowa granica projektowa; ≤ 0,6 – pełny kratering.
+export const SDOB_SAFE = 1.4, SDOB_FULL = 0.6, V_CRATER = 18; // V_CRATER [m/s]: pionowa prędkość bloczka nad ładunkiem przy pełnym krateringu
+export function sdob({ stemTop, kgPerM, diameterMm }) {
+  const d = diameterMm / 1000;
+  if (!(kgPerM > 0) || !(d > 0)) return Infinity;
+  const wt = kgPerM * 10 * d;
+  return (Math.max(0, stemTop) + 5 * d) / Math.cbrt(wt);
+}
+export function craterFactor(s) {
+  return Math.min(1, Math.max(0, (SDOB_SAFE - s) / (SDOB_SAFE - SDOB_FULL)));
+}
+
 export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3, power = 1, rng = Math.random }) {
   const a0 = (az * Math.PI) / 180;
   const top = Math.max(...blocks.map((b) => b.z + b.sz / 2)) - floorZ || 1;
+  const crater = holes.map((h) => (h.stemTop != null ? craterFactor(sdob(h)) : 0));
   return blocks.map((b) => {
     const h = holes[b.hole], pf = h.volume > 0 ? h.mass / h.volume : 0.4;
     const wFace = 0.45 + 0.55 * Math.exp(-distanceToEdge(polygon, b.x, b.y, az) / (3 * burden));
     const hf = Math.min(Math.max((b.z - floorZ) / top, 0), 1);               // 0 przy spągu, 1 przy wierzchu ławy
     const vH = V_REF * power * throwFactor(pf) * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
     const a = a0 + ((rng() - 0.5) * 40 * Math.PI) / 180;
-    return { vH, v: { x: Math.sin(a) * vH, y: 0.6 * vH + Math.min(1, vH), z: -Math.cos(a) * vH }, w: { x: (rng() - 0.5) * 4, y: (rng() - 0.5) * 4, z: (rng() - 0.5) * 4 } };
+    const v = { x: Math.sin(a) * vH, y: 0.6 * vH + Math.min(1, vH), z: -Math.cos(a) * vH };
+    const cf = crater[b.hole] ?? 0, rr = rng();
+    if (cf > 0 && h.z != null) {
+      // stożek krateru nad górą ładunku: im bliżej otworu i wylotu, tym mocniej w górę i na boki
+      const s = Math.max(b.sx, b.sz), dsb = Math.max(0, h.stemTop) + 0.005 * h.diameterMm;
+      const r = Math.hypot(b.x - h.x, b.y - h.y), R = 1.2 * dsb + s;
+      const depth = Math.max(0, h.z - (b.z + b.sz / 2));                    // głębokość wierzchu bloczka pod wylotem otworu
+      const w = cf * Math.max(0, 1 - r / R) * Math.max(0, 1 - depth / (dsb + s));
+      if (w > 0) {
+        const vUp = V_CRATER * power * w * (0.75 + 0.5 * rr);
+        const ang = r > 1e-3 ? Math.atan2(b.y - h.y, b.x - h.x) : rr * 2 * Math.PI;
+        v.y += vUp; v.x += 0.45 * vUp * Math.cos(ang); v.z -= 0.45 * vUp * Math.sin(ang);
+      }
+    }
+    return { vH, crater: cf, v, w: { x: (rng() - 0.5) * 4, y: (rng() - 0.5) * 4, z: (rng() - 0.5) * 4 } };
   });
 }

@@ -10,6 +10,7 @@ import { buildProfile, drawProfile } from './profile.js';
 import { computeTiming, maxChargeInWindow, groupByTime, autoNetwork } from './network.js';
 import { lillyA, kuzRam, retained, passing } from './fragmentation.js';
 import { BlastViz, timeColor, SIZE_STOPS, sizeColor } from './sim.js';
+import { sdob, SDOB_SAFE } from './physics.js';
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => parseFloat($(id).value) || 0;
@@ -592,6 +593,7 @@ function drawOverlay() {
 function renderStats() {
   const s = blast.summarize(state.holes, state.closed ? blast.polygonArea(state.polygon) : 0);
   const nProfile = state.holes.filter((h) => h.type === 'profile').length;
+  const sd = holeSdobs();
   const kg = {};
   for (const h of state.holes) for (const [id, m] of Object.entries(h.byProduct)) kg[id] = (kg[id] ?? 0) + m;
   const rows = [
@@ -602,6 +604,7 @@ function renderStats() {
     ...(state.holes.some((h) => h.plugs) ? [['Wkładki otworowe', `${state.holes.reduce((s, h) => s + h.plugs, 0)} szt.`]] : []),
     ...(state.holes.some((h) => h.airLength) ? [['Air deck (łączna długość)', `${fmt(state.holes.reduce((s, h) => s + h.airLength, 0), 1)} m`]] : []),
     ...(state.holes.some((h) => h.maxRise > 0) ? [['Największe podniesienie kolumny emulsji', `${fmt(Math.max(...state.holes.map((h) => h.maxRise)), 2)} m`]] : []),
+    ...(sd.length ? [['SDoB min (przybitka)', `${fmt(Math.min(...sd), 2)} m/kg^⅓${Math.min(...sd) < 0.92 ? ' ⚠ ryzyko wyrzutu w górę' : ''}`]] : []),
     ['Urabiana objętość (B×S×H)', `${fmt(s.volume, 0)} m³`],
     ['Jednostkowe zużycie MW', s.volume ? `${fmt(s.powderFactor, 2)} kg/m³` : '—'],
     ['Wiercenie jednostkowe', s.volume ? `${fmt(s.specificDrilling, 3)} m/m³` : '—'],
@@ -1023,7 +1026,11 @@ async function prepareViz() {
   state.vizBase = { target, meanToe, floorZ, take, surDist: sur * take };
   const info = v.prepare({
     polygon: state.closed ? state.polygon : null, floorZ, sampleZ,
-    holes: state.holes.map((h) => ({ x: h.x, y: h.y, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume })),
+    holes: state.holes.map((h) => {
+      const top = h.segments.find((x) => x.kind === 'charge'); // najwyższy ładunek: od niego liczymy przybitkę i SDoB
+      return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter,
+        stemTop: top ? top.from : null, kgPerM: top ? top.mass / Math.max(1e-6, top.to - top.from) : 0 };
+    }),
     burden: pat.burden, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
     az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
     power: num('simPower') || 1, blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
@@ -1037,6 +1044,14 @@ async function prepareViz() {
   if (mode === 'phys') { const kind = await v.ensurePhysics(); describeViz(info, kind); }
 }
 
+// SDoB każdego otworu (skalowana głębokość ukrycia najwyższego ładunku); < 0,92 – ryzyko wyrzutu w górę, ≥ 1,4 – bez wyrzutu
+function holeSdobs() {
+  return state.holes.map((h) => {
+    const top = h.segments?.find((x) => x.kind === 'charge');
+    return top ? sdob({ stemTop: top.from, kgPerM: top.mass / Math.max(1e-6, top.to - top.from), diameterMm: h.diameter }) : Infinity;
+  }).filter(Number.isFinite);
+}
+
 function describeViz(info, kind) {
   const mode = state.viz.mode, noNet = !state.timing?.time.size;
   const eng = kind === 'rapier' ? 'silnik Rapier' : kind === 'ballistic' ? 'uproszczona balistyka (silnik Rapier niedostępny)' : mode === 'phys' ? 'ładuję silnik fizyki…' : '';
@@ -1046,7 +1061,9 @@ function describeViz(info, kind) {
   const parts = [`${info.blocks.toLocaleString('pl')} bloczków po ${fmt(info.size, 2)} m`, `kierunek ku ścianie ${fmt(info.az, 0)}°`];
   if (mode !== 'time') parts.push(`odłamków ${info.frags.toLocaleString('pl')}`, `nienaruszonych (nadgabaryt) ${fmt((info.whole / info.blocks) * 100, 0)}%`);
   const around = info.rock ? ` Otoczenie skały: ${info.rock.toLocaleString('pl')} bloczków do ${fmt(info.rockDist, 0)} m od obrysu, takie same jak bloczki serii (zadane ${fmt(num("surround"), 1)} × zabiór ${fmt(vb.take, 0)} m).` : '';
-  $('simInfo').textContent = `${parts.join(', ')}.${base}${around}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
+  const sd = holeSdobs(), nCr = sd.filter((x) => x < SDOB_SAFE - 0.1).length; // pomijamy otwory tuż pod progiem (wyrzut pomijalny)
+  const crater = nCr ? ` Krótka przybitka: ${nCr} z ${sd.length} otworów ma SDoB < ${fmt(SDOB_SAFE - 0.1, 1)} (min ${fmt(Math.min(...sd), 2)}), bloczki nad ładunkiem wylatują w górę.` : '';
+  $('simInfo').textContent = `${parts.join(', ')}.${base}${around}${crater}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
 }
 
 function sizeLegend(show) {
