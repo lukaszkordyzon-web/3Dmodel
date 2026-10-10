@@ -155,10 +155,26 @@ export function craterFactor(s) {
   return Math.min(1, Math.max(0, (SDOB_SAFE - s) / (SDOB_SAFE - SDOB_FULL)));
 }
 
-export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3, power = 1, rng = Math.random }) {
+// Kierunek „odciążenia”: suma wektorów jednostkowych od otworu do sąsiadów (w promieniu R) odpalonych wcześniej.
+// Urobek przesuwa się w stronę, z której idzie otwarcie serii, bo tam robi się miejsce (ruch prostopadły do izochron).
+export function reliefDirs(holes, R) {
+  return holes.map((h) => {
+    let x = 0, y = 0;
+    for (const o of holes) {
+      if (o === h || o.tFire == null || h.tFire == null || !(o.tFire < h.tFire)) continue;
+      const dx = o.x - h.x, dy = o.y - h.y, d = Math.hypot(dx, dy);
+      if (d > 1e-6 && d <= R) { x += dx / d; y += dy / d; }
+    }
+    const L = Math.hypot(x, y);
+    return L > 1e-6 ? { x: x / L, y: y / L } : null;
+  });
+}
+
+export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3, spacing = burden, power = 1, relief = 0.8, rng = Math.random }) {
   const a0 = (az * Math.PI) / 180;
   const top = Math.max(...blocks.map((b) => b.z + b.sz / 2)) - floorZ || 1;
   const crater = holes.map((h) => (h.stemTop != null ? craterFactor(sdob(h)) : 0));
+  const rel = relief > 0 ? reliefDirs(holes, 1.6 * Math.max(burden, spacing)) : holes.map(() => null);
   return blocks.map((b) => {
     const h = holes[b.hole], pf = h.volume > 0 ? h.mass / h.volume : 0.4;
     const wFace = 0.45 + 0.55 * Math.exp(-distanceToEdge(polygon, b.x, b.y, az) / (3 * burden));
@@ -167,7 +183,10 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
     // kierunek: azymut nachylenia otworu (otwór pionowy – ku wolnej ścianie), wektor prostopadły do osi otworu:
     // przy nachyleniu α od pionu wylot jest pod kątem α nad poziomem; niewielkie rozproszenie ±10°
     const inclined = h.incl > 0.5 && h.inclAz != null;
-    const a = (inclined ? (h.inclAz * Math.PI) / 180 : a0) + ((rng() - 0.5) * 20 * Math.PI) / 180;
+    let a = inclined ? (h.inclAz * Math.PI) / 180 : a0;
+    const rd = rel[b.hole];
+    if (rd) { const ux = Math.sin(a) + relief * rd.x, uy = Math.cos(a) + relief * rd.y; if (Math.hypot(ux, uy) > 1e-6) a = Math.atan2(ux, uy); } // azymut (0° = +Y)
+    a += ((rng() - 0.5) * 20 * Math.PI) / 180;
     const el = inclined ? (h.incl * Math.PI) / 180 : 0;
     const vh = vH * Math.cos(el), vUp0 = vH * Math.sin(el) + Math.min(1, vH) * 0.5; // + lekkie spęcznienie urobku
     const v = { x: Math.sin(a) * vh, y: vUp0, z: -Math.cos(a) * vh };

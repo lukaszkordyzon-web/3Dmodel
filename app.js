@@ -1048,7 +1048,7 @@ async function prepareViz() {
       return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter, incl: tp.incl ?? 0, inclAz: tp.inclAz ?? null,
         stemTop: top ? top.from : null, kgPerM: top ? top.mass / Math.max(1e-6, top.to - top.from) : 0 };
     }),
-    burden: pat.burden, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
+    burden: pat.burden, spacing: pat.spacing, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
     az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
     power: num('simPower') || 1, blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
     surround: { dist: sur * take, maxBlocks: window.__surMax ?? 3000 },

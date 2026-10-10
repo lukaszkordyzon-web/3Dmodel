@@ -98,6 +98,19 @@ assert.ok(throwFactor(0.7) > 1.6 && throwFactor(0.7) < 2.1 && throwFactor(0.3) <
   const elev = Math.atan2(vi[0].v.y - 0.5 * Math.min(1, vi[0].vH), Math.hypot(vi[0].v.x, vi[0].v.z)) * 180 / Math.PI;
   assert.ok(Math.abs(elev - 20) < 0.5, `kąt wylotu = nachylenie otworu (${elev})`);
 }
+// otwarcie serii: urobek przesuwa się w stronę wcześniej odpalonych sąsiadów
+import { reliefDirs } from './physics.js';
+{
+  const row = [{ x: 1, y: 3, tFire: 0 }, { x: 5, y: 3, tFire: 25 }, { x: 9, y: 3, tFire: 50 }];
+  const r = reliefDirs(row, 6);
+  assert.equal(r[0], null); assert.ok(r[1].x < -0.99 && r[2].x < -0.99, 'odciążenie w stronę początku rzędu (-X)');
+  const hs = row.map((h) => ({ ...h, mass: 70, volume: 42 }));
+  const bl = buildBlocks({ polygon: poly, sampleZ: terrain, floorZ: 100, size: 1, holes: hs });
+  seed = 4; const v0 = throwVelocities({ blocks: bl, holes: hs, polygon: poly, floorZ: 100, az: 0, burden: 4, relief: 0, rng });
+  seed = 4; const v1 = throwVelocities({ blocks: bl, holes: hs, polygon: poly, floorZ: 100, az: 0, burden: 4, rng });
+  const mx = (v) => v.filter((_, i) => bl[i].hole > 0).reduce((s, x) => s + x.v.x, 0);
+  assert.ok(mx(v1) < mx(v0) - 50, 'bloczki późniejszych otworów zbaczają ku otwarciu serii');
+}
 // krótka przybitka: SDoB i wyrzut w górę bloczków nad ładunkiem
 import { sdob, craterFactor } from './physics.js';
 {
