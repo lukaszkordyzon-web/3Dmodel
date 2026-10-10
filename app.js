@@ -934,7 +934,10 @@ function ensureMwd() {
     clayHoles = state.holes.filter((h) => h.ref?.row === 0).sort((p, q) => p.y - q.y).slice(0, 3);
     if (clayHoles.length) {
       const zc = clayHoles.reduce((s, h) => s + (h.z + h.toe.z) / 2, 0) / clayHoles.length;
-      clayLens = { pts: clayHoles.map((h) => ({ x: h.x, y: h.y })), zc, half: 1.0, reach: 2.6 };
+      // przekładka sięga od otworów aż do wolnej ściany (wychodzi na czoło), żeby gazy miały drogę ujścia
+      const fa = (faceAz * Math.PI) / 180, pts = [];
+      for (const h of clayHoles) for (const d of [0, 2, 4, 6, 8]) pts.push({ x: h.x + Math.sin(fa) * d, y: h.y + Math.cos(fa) * d });
+      clayLens = { pts, zc, half: 1.0, reach: 2.6 };
     }
   }
   const geo = buildGeology(set, { origin, faceAz, clayLens });

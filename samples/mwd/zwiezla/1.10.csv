@@ -1,6 +1,6 @@
 # Syntetyczne dane MWD (do testów, nie z rzeczywistej wiertnicy)
 # Zestaw: Skała zwięzła – granodioryt z żyłą aplitu
-# PlanId: ca00a6b7fd70; HoleId: 10; HoleName: 1.10
+# PlanId: 0a6c1404455f; HoleId: 10; HoleName: 1.10
 Depth_m;Time_s;PenetrationRate_m_min;FeedPressure_bar;PercussionPressure_bar;RotationPressure_bar;DamperPressure_bar;FlushPressure_bar;RotationSpeed_rpm;X;Y;Z
 0;5.4;1.104;36.4;137.9;65.7;69.6;7.3;119;8.00;-18.00;5.97
 0.1;10;1.327;45.3;149.1;68.6;69.3;7.21;117;8.00;-18.00;5.87
