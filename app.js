@@ -1245,19 +1245,52 @@ function setMode(m) {
   if (m !== 'net' && state.net.pending != null) { state.net.pending = null; drawOverlay(); }
 }
 
+// Przykład na nierównej ścianie: krawędź skarpy faluje, więc zabiór pierwszego szeregu wynosi 2–4 m;
+// dalsze szeregi co 4 m, odstęp otworów 4 m (bez szachownicy), Ø102 mm, emulsja, sieć 25/42 ms.
+function naturalDesign() {
+  const { size } = state;
+  const at = (fx, fy) => { const x = (fx - 0.5) * size.x, y = (fy - 0.5) * size.y; return { x, y, z: sampleZ(x, y) ?? 0 }; };
+  $('burden').value = 4; $('spacing').value = 4; $('rowAz').value = 180; $('edge').value = 0; $('stagger').checked = false;
+  state.types.normal.diameter = state.types.profile.diameter = 102;
+  // przód obrysu na najgłębszym miejscu krawędzi (x = 57 m modelu), 12 m w głąb = 3 szeregi
+  state.polygon = [at(0.45, 0.25), at(0.57, 0.25), at(0.57, 0.75), at(0.45, 0.75)];
+  state.closed = true;
+  generate();
+  const last = Math.max(...state.grid.map((g) => g.row));
+  state.grid.forEach((g) => { if (g.row === last) g.type = 'profile'; });
+  Object.assign(state.types.profile, { incl: 12, inclAz: 90 });
+  typeToInputs();
+  $('autoPattern').value = 'rows'; $('autoAlong').value = 25; $('autoBetween').value = 42; $('netConn').value = 42;
+  autoNet();
+  // rzeczywisty zabiór pierwszego szeregu: odległość od otworu do miejsca, gdzie teren spada o ponad 1 m (ku ścianie, +X)
+  const first = state.holes.filter((h) => h.ref?.row === 0);
+  const bs = first.map((h) => { const z0 = sampleZ(h.x, h.y); for (let d = 0; d < 15; d += 0.1) { const z = sampleZ(h.x + d, h.y); if (z == null || z < z0 - 1) return d; } return null; }).filter((d) => d != null);
+  state.firstRowBurden = bs.length ? { min: Math.min(...bs), max: Math.max(...bs) } : null;
+  const c = state.polygon.reduce((s, p) => ({ x: s.x + p.x / state.polygon.length, y: s.y + p.y / state.polygon.length, z: s.z + p.z / state.polygon.length }), { x: 0, y: 0, z: 0 });
+  controls.target.set(c.x, c.z, -c.y); camera.position.set(c.x + 26, c.z + 20, -c.y + 30); controls.update();
+  $('simMode').value = 'time';
+  setSimMode();
+  const b = state.firstRowBurden;
+  status(`Ściana naturalna: ${state.holes.length} otworów w ${last + 1} szeregach, odstęp 4 m, Ø102 mm, emulsja. Zabiór 1. szeregu do nierównej ściany ${b ? `${fmt(b.min, 1)}–${fmt(b.max, 1)} m` : '—'}, dalsze szeregi co 4 m. Sieć 25/42 ms.`);
+}
+
 // Model przykładowy: ława z obrysem i siatką, żeby od razu było widać działanie.
+const SAMPLES = { lawa: 'lawa-testowa.obj', natural: 'sciana-naturalna.obj' };
 async function loadSample(withDesign = true) {
+  const kind = $('sampleKind')?.value === 'natural' ? 'natural' : 'lawa';
   try {
     let blob;
-    if (window.__SAMPLE_OBJ__) blob = new Blob([window.__SAMPLE_OBJ__]); // wersja osadzona (np. Streamlit)
+    const inl = window.__SAMPLE_OBJS__?.[kind] ?? (kind === 'lawa' ? window.__SAMPLE_OBJ__ : null);
+    if (inl) blob = new Blob([inl]); // wersja osadzona (np. Streamlit, artifact)
     else {
-      const res = await fetch('samples/lawa-testowa.obj');
+      const res = await fetch('samples/' + SAMPLES[kind]);
       if (!res.ok) throw new Error(res.status);
       blob = await res.blob();
     }
-    await loadFiles([new File([blob], 'lawa-testowa.obj')]);
+    await loadFiles([new File([blob], SAMPLES[kind])]);
   } catch (e) { return status('Nie udało się wczytać modelu przykładowego.'); }
   if (!withDesign) return;
+  if (kind === 'natural') return naturalDesign();
   const { size } = state;
   const at = (fx, fy) => { const x = (fx - 0.5) * size.x, y = (fy - 0.5) * size.y; return { x, y, z: sampleZ(x, y) ?? 0 }; };
   // Przykład: 3 rzędy po 10 otworów, siatka 4 × 4 m (bez szachownicy), koronka 102 mm, emulsja.
@@ -1308,6 +1341,7 @@ $('xmlPlanId').addEventListener('input', () => { state.planId = $('xmlPlanId').v
 $('xmlNewPlan').onclick = () => { state.planId = newPlanId(); $('xmlPlanId').value = state.planId; status(`Nowy ID planu: ${state.planId}. Dane powiązane ze starym ID zostają przy starym planie.`); };
 $('ctrlCompare').onclick = () => showProbe(true);
 $('loadSample').onclick = () => loadSample();
+$('sampleKind').onchange = () => loadSample();
 $('addCharge').onclick = () => { state.types[state.editType].template.push({ kind: 'charge', productId: state.products[0]?.id ?? '', by: 'length', length: 1 }); renderTemplate(); update(); };
 $('addDeck').onclick = () => { state.types[state.editType].template.push({ kind: 'deck', by: 'length', length: 0.3 }); renderTemplate(); update(); };
 $('lenMode').addEventListener('change', () => { inputsToType(); update(); });

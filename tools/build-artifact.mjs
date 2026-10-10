@@ -18,7 +18,7 @@ const css = readFileSync('style.css', 'utf8');
 const title = html.match(/<title>.*?<\/title>/s)[0];
 const body = html.match(/<body>([\s\S]*)<\/body>/)[1].replace(/<script type="module"[^>]*><\/script>/, '');
 const sample = flags.has('--inline-sample')
-  ? `<script>window.__SAMPLE_OBJ__=${JSON.stringify(readFileSync('samples/lawa-testowa.obj', 'utf8')).replaceAll('</', '<\\/')};</script>\n`
+  ? `<script>window.__SAMPLE_OBJS__={lawa:${JSON.stringify(readFileSync('samples/lawa-testowa.obj', 'utf8')).replaceAll('</', '<\\/')},natural:${JSON.stringify(readFileSync('samples/sciana-naturalna.obj', 'utf8')).replaceAll('</', '<\\/')}};window.__SAMPLE_OBJ__=window.__SAMPLE_OBJS__.lawa;</script>\n`
   : '';
 const page = `${title}\n<style>\n${css}</style>\n${body}\n${sample}<script>\n${js}\n</script>\n`;
 const head = '<!doctype html>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n<style>html,body{margin:0;height:100%}</style>\n';
