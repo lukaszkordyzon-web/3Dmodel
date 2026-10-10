@@ -82,7 +82,7 @@ export class BlastViz {
 
     // prędkości początkowe (układ sceny): model w physics.js (kierunek ku ścianie, większe przy ścianie i u góry ławy)
     const rng = mulberry32(777), az = (this.az * Math.PI) / 180, B = ctx.burden || 3;
-    this.vel = throwVelocities({ blocks, holes, polygon: ctx.polygon, floorZ: ctx.floorZ, az: this.az, burden: B, spacing: ctx.spacing ?? B, power: ctx.power ?? 1, rng });
+    this.vel = throwVelocities({ blocks, holes, polygon: ctx.polygon, floorZ: ctx.floorZ, az: this.az, burden: B, spacing: ctx.spacing ?? B, relief: ctx.relief ?? 0.8, power: ctx.power ?? 1, rng });
     this.dirWorld = { x: Math.sin(az), z: -Math.cos(az) };
 
     // rozpad: układ odłamków wg Rosina-Rammlera

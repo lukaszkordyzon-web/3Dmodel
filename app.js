@@ -710,7 +710,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -1050,7 +1050,7 @@ async function prepareViz() {
     }),
     burden: pat.burden, spacing: pat.spacing, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
     az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
-    power: num('simPower') || 1, blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
+    power: num('simPower') || 1, relief: $('simRelief').value === '' ? 0.8 : Math.max(0, num('simRelief')), blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
     surround: { dist: sur * take, maxBlocks: window.__surMax ?? 3000 },
   });
   if (!info.ok) { $('simInfo').textContent = info.message; state.model.visible = true; refreshTimeline(); return; }
@@ -1325,7 +1325,7 @@ for (const id of ['surfaceCat', 'inholeCat']) $(id).addEventListener('input', re
 $('colorMode').addEventListener('change', () => { state.colorMode = $('colorMode').value; drawOverlay(); refreshTimeline(); });
 $('delayWindow').addEventListener('input', () => update());
 $('simMode').addEventListener('change', setSimMode);
-for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'surround']) $(id).addEventListener('input', queueViz);
+for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'surround']) $(id).addEventListener('input', queueViz);
 $('volBase').addEventListener('change', queueViz);
 for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
 $('useTiming').addEventListener('change', () => update());
