@@ -90,17 +90,24 @@ export class BlastViz {
     // MWD: lokalny współczynnik skały (rozdrobnienie) i korekta prędkości – twardsza skała rzuca dalej, spękana gorzej (ujście gazów)
     this.blockAf = null; this.mwdInfo = null;
     if (ctx.mwd?.field) {
-      this.blockAf = new Float32Array(blocks.length);
+      this.blockAf = new Float32Array(blocks.length); this.blockRock = new Uint8Array(blocks.length).fill(3);
       let aMin = Infinity, aMax = -Infinity, nClay = 0;
       blocks.forEach((b, i) => {
         const f = ctx.mwd.field(b.x, b.y, b.z);
         if (!f) { this.blockAf[i] = 1; return; }
         this.blockAf[i] = f.A / ctx.mwd.meanA; aMin = Math.min(aMin, f.A); aMax = Math.max(aMax, f.A);
         let k = Math.min(1.25, Math.max(0.8, 0.8 + 0.2 * (f.ucs / ctx.mwd.meanUcs))) * (1 - 0.25 * f.fi);
+        // rodzaj skały do kolorowania: 0 glina, 1 strefa spękana, 2 słaba/marglista, 3 zwięzła, 4 bardzo twarda
+        this.blockRock[i] = f.clay ? 0 : f.fi > 0.45 ? 1 : f.ucs < 65 ? 2 : f.ucs < 150 ? 3 : 4;
         if (f.clay) {
-          // glina: plastyczna, pochłania energię i nie kruszy się (zostaje w bryłach), lżejsza (2,0 t/m³), lepka – prawie się nie rzuca
+          // glina: słaba, nie kruszy się (bryły), lżejsza (2,0 t/m³); gazy uciekają przez nią najkrótszą drogą –
+          // przekładka zostaje wydmuchnięta poziomo ku ścianie (silniej niż skała), z małym unoszeniem
           b.mat = 'clay'; b.rho = 2000; b.friction = 0.85; b.restitution = 0.03; nClay++;
-          k = 0.35;
+          for (const V of [this.vel[i], this.velPhys[i]]) {
+            const vh = Math.max(4, Math.hypot(V.v.x, V.v.z)) * 2.2;
+            V.v.x = Math.sin((this.az * Math.PI) / 180) * vh; V.v.z = -Math.cos((this.az * Math.PI) / 180) * vh; V.v.y = 0.15 * vh; V.vH = vh;
+          }
+          k = 1;
         } else {
           // otwór przechodzący przez glinę: gazy uchodzą w plastyczną warstwę, ciśnienie w otworze spada → cały słup słabiej rzuca i grubiej kruszy
           if (f.clayHole) { k *= 0.6; this.blockAf[i] *= 1.25; }
@@ -251,11 +258,10 @@ export class BlastViz {
     this.render(this.t);
   }
 
-  // Kolor wg skały z MWD: jasnożółte = słaba/spękana (małe A), ciemnoniebieskie = zwięzła (duże A), brązowe = glina.
+  // Kolor wg rodzaju skały z MWD: brąz – glina, pomarańcz – strefa spękana, żółty – słaba/marglista, niebieski – zwięzła, fiolet – bardzo twarda.
   rockColor(i, c) {
-    if (this.blocks[i].mat === 'clay') return c.setRGB(0.75, 0.33, 0.08);
-    const t = Math.min(1, Math.max(0, (this.blockAf[i] - 0.6) / 0.9));
-    return c.setRGB(1.0 - 0.82 * t, 0.9 - 0.62 * t, 0.25 + 0.7 * t);
+    const C = [[0.36, 0.2, 0.07], [0.93, 0.36, 0.42], [0.96, 0.84, 0.3], [0.3, 0.5, 0.95], [0.58, 0.3, 0.86]][this.blockRock?.[i] ?? 3];
+    return c.setRGB(C[0], C[1], C[2]);
   }
 
   // Stan bloczka: 0 = nieodpalony, 2 = odpalony i w ruchu/animacji, 1 = odpalony i ustalony.
