@@ -251,6 +251,13 @@ export class BlastViz {
     this.render(this.t);
   }
 
+  // Kolor wg skały z MWD: jasnożółte = słaba/spękana (małe A), ciemnoniebieskie = zwięzła (duże A), brązowe = glina.
+  rockColor(i, c) {
+    if (this.blocks[i].mat === 'clay') return c.setRGB(0.75, 0.33, 0.08);
+    const t = Math.min(1, Math.max(0, (this.blockAf[i] - 0.6) / 0.9));
+    return c.setRGB(1.0 - 0.82 * t, 0.9 - 0.62 * t, 0.25 + 0.7 * t);
+  }
+
   // Stan bloczka: 0 = nieodpalony, 2 = odpalony i w ruchu/animacji, 1 = odpalony i ustalony.
   // Ustalone i nieodpalone bloczki pomijamy, żeby odtwarzanie było płynne.
   render(t, force = false) {
@@ -293,7 +300,8 @@ export class BlastViz {
       if (mode === 'time') {
         if (!fired) timeColor(this.tFireMax > this.tFireMin ? (tf - this.tFireMin) / (this.tFireMax - this.tFireMin) : 0, c);
         else { const fl = Math.max(0, 1 - age / 220); c.setRGB(0.26 + 0.74 * fl, 0.28 + 0.6 * fl, 0.3 + 0.4 * fl); }
-      } else if (b.mat === 'clay') c.setRGB(0.55, 0.38, 0.22); // glina: brązowa
+      } else if (this.colorBy === 'rock' && this.blockAf) this.rockColor(i, c);                  // skała z MWD: warstwy, spękania, glina
+      else if (b.mat === 'clay') c.setRGB(0.55, 0.38, 0.22); // glina: brązowa
       else if (fired && this.whole[i]) sizeColor(Math.cbrt(b.sx * b.sy * b.sz), c); // nadgabaryt: bloczek nie rozpadł się (cały bloczek)
       else { const g = 0.45 * this.blockGray[i]; c.setRGB(g, g * 1.03, g * 1.1); }
       this.blockMesh.setColorAt(i, c);
@@ -305,7 +313,7 @@ export class BlastViz {
           p.set(px + o.x, py + o.y, pz + o.z);
           s.set(this.fragDim[k * 3], this.fragDim[k * 3 + 1], this.fragDim[k * 3 + 2]);
           m.compose(p, q, s); this.fragMesh.setMatrixAt(k, m);
-          const fk = k * 3; const sh = 0.8 + 0.2 * this.fragGray[k]; sizeColor(Math.cbrt(this.fragDim[fk] * this.fragDim[fk + 1] * this.fragDim[fk + 2]), c); c.multiplyScalar(sh); this.fragMesh.setColorAt(k, c);
+          const fk = k * 3; const sh = 0.8 + 0.2 * this.fragGray[k]; if (this.colorBy === 'rock' && this.blockAf) this.rockColor(i, c); else sizeColor(Math.cbrt(this.fragDim[fk] * this.fragDim[fk + 1] * this.fragDim[fk + 2]), c); c.multiplyScalar(sh); this.fragMesh.setColorAt(k, c);
         }
         anyFrag = true;
       }

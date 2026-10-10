@@ -711,7 +711,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm', 'mwdWapien', 'mwdZwiezla', 'mwdClay'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm', 'mwdWapien', 'mwdZwiezla', 'mwdClay', 'simColor'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -1086,7 +1086,7 @@ async function prepareViz() {
   const v = state.viz, mode = $('simMode').value;
   if (mode === 'off' || !state.model) return;
   const zs = zShift(), pat = readPattern();
-  v.mode = mode;
+  v.mode = mode; v.colorBy = $('simColor').value;
   const normals = state.holes.filter((h) => h.type === 'normal');
   const meanToe = normals.length ? normals.reduce((s, h) => s + h.toe.z, 0) / normals.length : state.types.normal.targetZ - zs;
   const target = state.types.normal.targetZ - zs;
@@ -1142,6 +1142,7 @@ function describeViz(info, kind) {
 
 function sizeLegend(show) {
   const el = $('sizeLegend'); el.hidden = !show;
+  if (show && $('simColor').value === 'rock') { el.innerHTML = 'Skała z MWD: <span style="color:#ffe640">■</span> słaba / spękana (małe A) → <span style="color:#2e47f2">■</span> zwięzła (duże A), <span style="color:#bf5414">■</span> glina. Bez danych MWD kolor wg wielkości.'; el.dataset.ok = ''; return; }
   if (!show || el.dataset.ok) return;
   const css = (d) => { const c = sizeColor(d); return `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`; };
   const lo = SIZE_STOPS[0][0], hi = SIZE_STOPS[SIZE_STOPS.length - 1][0];
@@ -1420,8 +1421,10 @@ for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'sim
 $('volBase').addEventListener('change', queueViz);
 for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
 $('useTiming').addEventListener('change', () => update());
-$('mwdClay').addEventListener('change', () => { if ($('mwdClay').checked) { $('mwdWapien').checked = true; $('mwdZwiezla').checked = false; } update(); queueViz(); });
-for (const [id, other] of [['mwdWapien', 'mwdZwiezla'], ['mwdZwiezla', 'mwdWapien']]) $(id).addEventListener('change', () => { if ($(id).checked) $(other).checked = false; if (!$('mwdWapien').checked) $('mwdClay').checked = false; update(); queueViz(); });
+$('simColor').addEventListener('change', () => { state.viz.colorBy = $('simColor').value; sizeLegend(['frag', 'phys'].includes($('simMode').value)); if (state.viz.ready) state.viz.render(state.viz.t ?? 0, true); });
+function mwdAutoColor() { if (mwdSet()) { $('simColor').value = 'rock'; state.viz.colorBy = 'rock'; sizeLegend(['frag', 'phys'].includes($('simMode').value)); } }
+$('mwdClay').addEventListener('change', () => { if ($('mwdClay').checked) { $('mwdWapien').checked = true; $('mwdZwiezla').checked = false; } mwdAutoColor(); update(); queueViz(); });
+for (const [id, other] of [['mwdWapien', 'mwdZwiezla'], ['mwdZwiezla', 'mwdWapien']]) $(id).addEventListener('change', () => { if ($(id).checked) $(other).checked = false; if (!$('mwdWapien').checked) $('mwdClay').checked = false; mwdAutoColor(); update(); queueViz(); });
 $('tlPlay').onclick = togglePlay;
 $('tlReset').onclick = resetClock;
 $('tlSlider').addEventListener('input', () => {
