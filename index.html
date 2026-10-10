@@ -207,6 +207,10 @@
           <label>Nadgabaryt powyżej [cm]<input type="number" id="oversize" value="100" min="10" step="5"></label>
           <label>Rozrzut zapalników [% czasu]<input type="number" id="detScatter" value="2" min="0" step="0.5"></label>
           <label class="check"><input type="checkbox" id="useTiming" checked> Wpływ opóźnień (szacunek wg Cunninghama 2005, niekalibrowany)</label>
+          <p class="hint" style="margin:8px 0 2px">Dane MWD z wiercenia (syntetyczne, próbkowanie co 10 cm) – zastępują współczynnik skały z formularza:</p>
+          <label class="check"><input type="checkbox" id="mwdWapien"> Syntetyczne MWD: wapień warstwowany (upad 25° na N, strzał prostopadle do upadu)</label>
+          <label class="check"><input type="checkbox" id="mwdZwiezla"> Syntetyczne MWD: skała zwięzła (granodioryt z żyłą aplitu)</label>
+          <p class="hint" id="mwdInfo"></p>
         </div>
         <dl id="fragStats"></dl>
         <canvas id="fragChart" height="150"></canvas>

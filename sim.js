@@ -87,6 +87,20 @@ export class BlastViz {
     // w fizyce (Rapier) odciążenie liczymy w 3D w chwili odpalenia (sąsiedzi także nad i pod bloczkiem), więc tu bez odciążenia poziomego
     this.velPhys = throwVelocities({ ...vArgs, relief: 0, rng: mulberry32(777) });
     this.relief = ctx.relief ?? 0.8; this.craterK = ctx.crater ?? 1;
+    // MWD: lokalny współczynnik skały (rozdrobnienie) i korekta prędkości – twardsza skała rzuca dalej, spękana gorzej (ujście gazów)
+    this.blockAf = null; this.mwdInfo = null;
+    if (ctx.mwd?.field) {
+      this.blockAf = new Float32Array(blocks.length);
+      let aMin = Infinity, aMax = -Infinity;
+      blocks.forEach((b, i) => {
+        const f = ctx.mwd.field(b.x, b.y, b.z);
+        if (!f) { this.blockAf[i] = 1; return; }
+        this.blockAf[i] = f.A / ctx.mwd.meanA; aMin = Math.min(aMin, f.A); aMax = Math.max(aMax, f.A);
+        const k = Math.min(1.25, Math.max(0.8, 0.8 + 0.2 * (f.ucs / ctx.mwd.meanUcs))) * (1 - 0.25 * f.fi);
+        for (const V of [this.vel[i], this.velPhys[i]]) { V.v.x *= k; V.v.y *= k; V.v.z *= k; V.vH *= k; }
+      });
+      this.mwdInfo = { aMin, aMax };
+    }
     this.dirWorld = { x: Math.sin(az), z: -Math.cos(az) };
 
     // rozpad: układ odłamków wg Rosina-Rammlera
@@ -98,11 +112,12 @@ export class BlastViz {
     const rf = mulberry32(4242);
     blocks.forEach((b, i) => {
       this.fragStart[i] = fp.length;
-      const smin = Math.min(b.sx, b.sy, b.sz), x = rrSample(rf(), x50, n) / 100;
+      const xb = x50 * (this.blockAf ? this.blockAf[i] : 1); // MWD: rozdrobnienie bloczka wg lokalnego współczynnika skały
+      const smin = Math.min(b.sx, b.sy, b.sz), x = rrSample(rf(), xb, n) / 100;
       if (x >= smin * 0.9) { this.whole[i] = 1; return; } // nadgabaryt: bloczek zostaje nienaruszony
       const m = Math.min(mMax, Math.max(1, Math.round(smin / x)));
       for (let a = 0; a < m; a++) for (let c = 0; c < m; c++) for (let d = 0; d < m; d++) {
-        const r = Math.min(1, Math.max(0.35, (rrSample(rf(), x50, n) / 100) / (smin / m)));
+        const r = Math.min(1, Math.max(0.35, (rrSample(rf(), xb, n) / 100) / (smin / m)));
         fp.push(i);
         fo.push(((a + 0.5) / m - 0.5) * b.sx, ((d + 0.5) / m - 0.5) * b.sz, -(((c + 0.5) / m - 0.5) * b.sy)); // przesunięcie w osiach sceny
         fd.push((b.sx / m) * r, (b.sz / m) * r, (b.sy / m) * r);
@@ -141,7 +156,7 @@ export class BlastViz {
     this.bState = new Uint8Array(blocks.length).fill(255);
     this.ready = true;
     this.reset();
-    return { ok: true, blocks: blocks.length, size, frags: this.fragParent.length, whole: this.wholeCount, az: this.az, height: this.height, rock: this.rock.length, rockSize: this.rockSize, rockDist: this.rockDist };
+    return { ok: true, blocks: blocks.length, size, frags: this.fragParent.length, whole: this.wholeCount, az: this.az, height: this.height, rock: this.rock.length, rockSize: this.rockSize, rockDist: this.rockDist, mwd: this.mwdInfo };
   }
 
   // skała otoczenia na pozycjach początkowych

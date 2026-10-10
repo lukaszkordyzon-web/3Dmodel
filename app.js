@@ -11,6 +11,7 @@ import { computeTiming, maxChargeInWindow, groupByTime, autoNetwork } from './ne
 import { lillyA, kuzRam, retained, passing, pWaveKmS, tMaxMs, timingFactor, scatterFactor, reliefDelay } from './fragmentation.js';
 import { BlastViz, timeColor, SIZE_STOPS, sizeColor } from './sim.js';
 import { sdob, SDOB_SAFE } from './physics.js';
+import { MWD_SETS, buildGeology, drillHole, interpretHole, mwdCsv } from './mwd.js';
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => parseFloat($(id).value) || 0;
@@ -710,7 +711,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm', 'mwdWapien', 'mwdZwiezla'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -916,6 +917,43 @@ function frame() {
 }
 
 // ---------- fragmentacja (Kuz-Ram) ----------
+// ---------- MWD (syntetyczne) ----------
+function mwdSet() { return $('mwdWapien').checked ? 'wapien' : $('mwdZwiezla').checked ? 'zwiezla' : null; }
+// Wierci wszystkie otwory przez geologię wybranego zestawu (punkt odniesienia: środek obrysu, żeby warstwy przechodziły przez strzał).
+function ensureMwd() {
+  const set = mwdSet();
+  if (!set || !state.holes.length) { state.mwd = null; return null; }
+  const key = set + '|' + state.holes.map((h) => `${h.id}:${h.x.toFixed(2)},${h.y.toFixed(2)},${h.z.toFixed(2)},${h.length.toFixed(2)}`).join(';');
+  if (state.mwd?.key === key) return state.mwd;
+  const P = state.polygon.length ? state.polygon : state.holes;
+  const origin = { x: P.reduce((s, p) => s + p.x, 0) / P.length, y: P.reduce((s, p) => s + p.y, 0) / P.length, z: state.holes.reduce((s, h) => s + h.z, 0) / state.holes.length };
+  const faceAz = state.viz?.az ?? 90, geo = buildGeology(set, { origin, faceAz });
+  const holes = state.holes.map((h) => {
+    const samples = drillHole(geo, h, { seed: h.id });
+    return { h, samples, it: interpretHole(samples, { density: geo.density }) };
+  });
+  const all = holes.flatMap((x) => Array.from(x.it.A)), allU = holes.flatMap((x) => Array.from(x.it.ucs));
+  const mean = (v) => v.reduce((s, q) => s + q, 0) / Math.max(1, v.length);
+  state.mwd = { key, set, geo, holes, meanA: mean(all), minA: Math.min(...all), maxA: Math.max(...all), meanUcs: mean(allU), perM: mean(holes.map((x) => x.it.perM)) };
+  return state.mwd;
+}
+// Właściwości w punkcie z najbliższego otworu (w poziomie) na odpowiadającej głębokości.
+function mwdField(x, y, z) {
+  const m = state.mwd;
+  if (!m) return null;
+  let best = null, bd = Infinity;
+  for (const o of m.holes) { const d = (o.h.x - x) ** 2 + (o.h.y - y) ** 2; if (d < bd) { bd = d; best = o; } }
+  const h = best.h, dir = h.dir ?? { x: 0, y: 0, z: -1 };
+  const d = (x - h.x) * dir.x + (y - h.y) * dir.y + (z - h.z) * dir.z;
+  const i = Math.min(best.samples.length - 1, Math.max(0, Math.round(d / 0.1)));
+  return { A: best.it.A[i], ucs: best.it.ucs[i], fi: best.it.fi[i] };
+}
+function mwdFiles(set = mwdSet()) {
+  const m = ensureMwd();
+  if (!m || m.set !== set) return {};
+  return Object.fromEntries(m.holes.map((o) => [`${o.h.name}.csv`, mwdCsv(o.samples, { planId: state.planId, holeId: o.h.id, holeName: o.h.name, setName: MWD_SETS[set].name })]));
+}
+
 function updateFrag() {
   state.frag = null;
   const hs = state.holes.filter((h) => h.type === 'normal' && h.mass > 0 && h.benchHeight > 0);
@@ -924,7 +962,8 @@ function updateFrag() {
   const mean = (f) => hs.reduce((s, h) => s + f(h), 0) / hs.length;
   const pat = readPattern(), tp = state.types.normal;
   const H = mean((h) => h.benchHeight), Q = mean((h) => h.mass), L = mean((h) => h.chargeLength), BCL = mean((h) => h.bcl);
-  const A = $('rockA').value !== '' ? num('rockA') : lillyA({ rmd: $('rmd').value, jps: $('jps').value, jpa: $('jpa').value, density: num('rockRho'), youngGpa: num('rockE'), ucsMpa: num('rockUcs') });
+  const mwdD = ensureMwd();
+  const A = mwdD ? mwdD.meanA : $('rockA').value !== '' ? num('rockA') : lillyA({ rmd: $('rmd').value, jps: $('jps').value, jpa: $('jpa').value, density: num('rockRho'), youngGpa: num('rockE'), ucsMpa: num('rockUcs') });
   let mw = 0, mr = 0;
   for (const h of hs) for (const [id, m] of Object.entries(h.byProduct)) { mw += m; mr += m * (state.products.find((p) => p.id === id)?.rws ?? 100); }
   const rws = mw ? mr / mw : 100;
@@ -943,7 +982,7 @@ function updateFrag() {
   state.frag = { ...r, A, rws, xo, T, Tmax, At, Rs, ns, cp, oversizePct: retained(xo, r.x50, r.n) * 100, x80: r.xc * Math.log(5) ** (1 / r.n), pf: Q / (pat.burden * pat.spacing * H), n: r.n };
   const f = state.frag;
   const rows = [
-    ['Współczynnik skały A', fmt(A, 1)], ['Średnia siła MW (ANFO = 100)', fmt(rws, 0)], ['Zużycie jednostkowe', `${fmt(f.pf, 2)} kg/m³`],
+    [mwdD ? 'Współczynnik skały A z MWD (średnia, zakres)' : 'Współczynnik skały A', mwdD ? `${fmt(A, 1)} (${fmt(mwdD.minA, 1)}–${fmt(mwdD.maxA, 1)})` : fmt(A, 1)], ['Średnia siła MW (ANFO = 100)', fmt(rws, 0)], ['Zużycie jednostkowe', `${fmt(f.pf, 2)} kg/m³`],
     ['X50 (rozmiar mediany)', `${fmt(f.x50, 0)} cm`], ['X80', `${fmt(f.x80, 0)} cm`], ['Wskaźnik jednorodności n', fmt(f.n, 2)],
     [`Nadgabaryt > ${fmt(xo, 0)} cm`, `${fmt(f.oversizePct, 1)} %`],
     ...(!$('useTiming').checked ? [['Opóźnienia', 'wpływ wyłączony']] : f.T != null ? [
@@ -955,6 +994,7 @@ function updateFrag() {
     ] : [['Opóźnienia', 'brak sieci – bez poprawki czasowej']]),
   ];
   out.replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
+  $('mwdInfo').textContent = mwdD ? `${MWD_SETS[mwdD.set].name}: ${mwdD.holes.length} otworów, ${mwdD.holes.reduce((s, o) => s + o.samples.length, 0).toLocaleString('pl')} próbek; UCS z MWD średnio ${fmt(mwdD.meanUcs, 0)} MPa, ${fmt(mwdD.perM, 1)} szczelin/m, A ${fmt(mwdD.minA, 1)}–${fmt(mwdD.maxA, 1)}.` : '';
   drawFragChart();
 }
 
@@ -1048,6 +1088,7 @@ async function prepareViz() {
       return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter, mPerM: h.chargeLength > 0 ? h.mass / h.chargeLength : 0, incl: tp.incl ?? 0, inclAz: tp.inclAz ?? null,
         stemTop: top ? top.from : null, kgPerM: top ? top.mass / Math.max(1e-6, top.to - top.from) : 0 };
     }),
+    mwd: ensureMwd() ? { field: mwdField, meanA: state.mwd.meanA, meanUcs: state.mwd.meanUcs } : null,
     burden: pat.burden, spacing: pat.spacing, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
     az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
     power: num('simPower') || 1, relief: $('simRelief').value === '' ? 0.8 : Math.max(0, num('simRelief')), crater: $('simCrater').value === '' ? 1 : Math.max(0, num('simCrater')), kRM: $('simKrm').value === '' ? 10 : Math.max(0, num('simKrm')), blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
@@ -1080,7 +1121,8 @@ function describeViz(info, kind) {
   const around = info.rock ? ` Otoczenie skały: ${info.rock.toLocaleString('pl')} bloczków do ${fmt(info.rockDist, 0)} m od obrysu, takie same jak bloczki serii (zadane ${fmt(num("surround"), 1)} × zabiór ${fmt(vb.take, 0)} m).` : '';
   const sd = holeSdobs(), nCr = sd.filter((x) => x < SDOB_SAFE).length;
   const crater = nCr ? ` Krótka przybitka: ${nCr} z ${sd.length} otworów ma SDoB < ${fmt(SDOB_SAFE, 1)} (min ${fmt(Math.min(...sd), 2)}), bloczki nad ładunkiem wylatują w górę.` : '';
-  $('simInfo').textContent = `${parts.join(', ')}.${base}${around}${crater}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
+  const mwdTxt = info.mwd ? ` MWD: współczynnik skały bloczków ${fmt(info.mwd.aMin, 1)}–${fmt(info.mwd.aMax, 1)} (warstwy i spękania z wiercenia).` : '';
+  $('simInfo').textContent = `${parts.join(', ')}.${base}${around}${crater}${mwdTxt}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
 }
 
 function sizeLegend(show) {
@@ -1363,6 +1405,7 @@ for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'sim
 $('volBase').addEventListener('change', queueViz);
 for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
 $('useTiming').addEventListener('change', () => update());
+for (const [id, other] of [['mwdWapien', 'mwdZwiezla'], ['mwdZwiezla', 'mwdWapien']]) $(id).addEventListener('change', () => { if ($(id).checked) $(other).checked = false; update(); queueViz(); });
 $('tlPlay').onclick = togglePlay;
 $('tlReset').onclick = resetClock;
 $('tlSlider').addEventListener('input', () => {
@@ -1421,4 +1464,4 @@ function holeScreenPos(h) {
 }
 
 // do testów w przeglądarce
-window.__app = { camera, controls, clock, prepareViz, setSimMode, autoNet, togglePlay, resetClock, applyHoleColors, holeScreenPos, state, loadFiles, generate, closePolygon, loadSample, update, exportXml, exportCsv, projectToJson, loadProjectFromText, renderProfile, openProfileForHole };
+window.__app = { mwdFiles, mwdField, ensureMwd, camera, controls, clock, prepareViz, setSimMode, autoNet, togglePlay, resetClock, applyHoleColors, holeScreenPos, state, loadFiles, generate, closePolygon, loadSample, update, exportXml, exportCsv, projectToJson, loadProjectFromText, renderProfile, openProfileForHole };
