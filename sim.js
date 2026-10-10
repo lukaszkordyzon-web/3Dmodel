@@ -82,7 +82,7 @@ export class BlastViz {
 
     // prędkości początkowe (układ sceny): model w physics.js (kierunek ku ścianie, większe przy ścianie i u góry ławy)
     const rng = mulberry32(777), az = (this.az * Math.PI) / 180, B = ctx.burden || 3;
-    const vArgs = { blocks, holes, polygon: ctx.polygon, floorZ: ctx.floorZ, az: this.az, burden: B, spacing: ctx.spacing ?? B, relief: ctx.relief ?? 0.8, craterK: ctx.crater ?? 1, power: ctx.power ?? 1 };
+    const vArgs = { blocks, holes, polygon: ctx.polygon, floorZ: ctx.floorZ, az: this.az, burden: B, spacing: ctx.spacing ?? B, relief: ctx.relief ?? 0.8, craterK: ctx.crater ?? 1, kRM: ctx.kRM ?? 10, power: ctx.power ?? 1 };
     this.vel = throwVelocities({ ...vArgs, rng });
     // w fizyce (Rapier) odciążenie liczymy w 3D w chwili odpalenia (sąsiedzi także nad i pod bloczkiem), więc tu bez odciążenia poziomego
     this.velPhys = throwVelocities({ ...vArgs, relief: 0, rng: mulberry32(777) });

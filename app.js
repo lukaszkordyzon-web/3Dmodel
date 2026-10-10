@@ -8,7 +8,7 @@ import { buildIredesXml, newPlanId } from './iredes.js';
 import { pl2000ToLonLat } from './geo.js';
 import { buildProfile, drawProfile } from './profile.js';
 import { computeTiming, maxChargeInWindow, groupByTime, autoNetwork } from './network.js';
-import { lillyA, kuzRam, retained, passing, tMaxMs, timingFactor, scatterFactor, reliefDelay } from './fragmentation.js';
+import { lillyA, kuzRam, retained, passing, pWaveKmS, tMaxMs, timingFactor, scatterFactor, reliefDelay } from './fragmentation.js';
 import { BlastViz, timeColor, SIZE_STOPS, sizeColor } from './sim.js';
 import { sdob, SDOB_SAFE } from './physics.js';
 
@@ -710,7 +710,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -931,7 +931,7 @@ function updateFrag() {
   if (!(A > 0) || !(L > 0) || !(H > 0)) { out.replaceChildren(); drawFragChart(); return; }
   const r0 = kuzRam({ A, Q, V0: pat.burden * pat.spacing * H, rws, B: pat.burden, S: pat.spacing, D: tp.diameter, W: num('drillSd'), L, BCL, CCL: Math.max(0, L - BCL), H });
   // opóźnienia: czynnik czasu A_t (opóźnienie odciążające względem T_max) i rozrzut zapalników (obniża n)
-  const rhoR = num('rockRho') || 2.6, cp = Math.sqrt((num('rockE') * 1e9) / (rhoR < 100 ? rhoR * 1000 : rhoR)) / 1000; // km/s (gęstość w t/m³ lub kg/m³)
+  const rhoR = num('rockRho') || 2.6, cp = pWaveKmS(num('rockE'), rhoR < 100 ? rhoR : rhoR / 1000, $('rockNu').value === '' ? 0.25 : num('rockNu')); // fala P, km/s
   const T = reliefDelay(state.holes, 1.6 * Math.max(pat.burden, pat.spacing)), Tmax = tMaxMs(pat.burden, cp);
   const useT = $('useTiming').checked;
   const At = useT && T != null && cp > 0 ? timingFactor(T, Tmax) : 1;
@@ -1045,12 +1045,12 @@ async function prepareViz() {
     holes: state.holes.map((h) => {
       const top = h.segments.find((x) => x.kind === 'charge'); // najwyższy ładunek: od niego liczymy przybitkę i SDoB
       const tp = state.types[h.type];
-      return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter, incl: tp.incl ?? 0, inclAz: tp.inclAz ?? null,
+      return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter, mPerM: h.chargeLength > 0 ? h.mass / h.chargeLength : 0, incl: tp.incl ?? 0, inclAz: tp.inclAz ?? null,
         stemTop: top ? top.from : null, kgPerM: top ? top.mass / Math.max(1e-6, top.to - top.from) : 0 };
     }),
     burden: pat.burden, spacing: pat.spacing, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,
     az: $('simAz').value !== '' ? num('simAz') : null, fallbackAz: state.types.normal.incl > 0.5 ? state.types.normal.inclAz : (pat.rowAz + 90) % 360,
-    power: num('simPower') || 1, relief: $('simRelief').value === '' ? 0.8 : Math.max(0, num('simRelief')), crater: $('simCrater').value === '' ? 1 : Math.max(0, num('simCrater')), blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
+    power: num('simPower') || 1, relief: $('simRelief').value === '' ? 0.8 : Math.max(0, num('simRelief')), crater: $('simCrater').value === '' ? 1 : Math.max(0, num('simCrater')), kRM: $('simKrm').value === '' ? 10 : Math.max(0, num('simKrm')), blockSize: num('blkSize'), maxBlocks: num('maxBlocks') || 2500,
     surround: { dist: sur * take, maxBlocks: window.__surMax ?? 3000 },
   });
   if (!info.ok) { $('simInfo').textContent = info.message; state.model.visible = true; refreshTimeline(); return; }
@@ -1078,8 +1078,8 @@ function describeViz(info, kind) {
   const parts = [`${info.blocks.toLocaleString('pl')} bloczków po ${fmt(info.size, 2)} m`, `kierunek ku ścianie ${fmt(info.az, 0)}°`];
   if (mode !== 'time') parts.push(`odłamków ${info.frags.toLocaleString('pl')}`, `nienaruszonych (nadgabaryt) ${fmt((info.whole / info.blocks) * 100, 0)}%`);
   const around = info.rock ? ` Otoczenie skały: ${info.rock.toLocaleString('pl')} bloczków do ${fmt(info.rockDist, 0)} m od obrysu, takie same jak bloczki serii (zadane ${fmt(num("surround"), 1)} × zabiór ${fmt(vb.take, 0)} m).` : '';
-  const sd = holeSdobs(), nCr = sd.filter((x) => x < SDOB_SAFE - 0.1).length; // pomijamy otwory tuż pod progiem (wyrzut pomijalny)
-  const crater = nCr ? ` Krótka przybitka: ${nCr} z ${sd.length} otworów ma SDoB < ${fmt(SDOB_SAFE - 0.1, 1)} (min ${fmt(Math.min(...sd), 2)}), bloczki nad ładunkiem wylatują w górę.` : '';
+  const sd = holeSdobs(), nCr = sd.filter((x) => x < SDOB_SAFE).length;
+  const crater = nCr ? ` Krótka przybitka: ${nCr} z ${sd.length} otworów ma SDoB < ${fmt(SDOB_SAFE, 1)} (min ${fmt(Math.min(...sd), 2)}), bloczki nad ładunkiem wylatują w górę.` : '';
   $('simInfo').textContent = `${parts.join(', ')}.${base}${around}${crater}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
 }
 
@@ -1325,9 +1325,9 @@ for (const id of ['surfaceCat', 'inholeCat']) $(id).addEventListener('input', re
 $('colorMode').addEventListener('change', () => { state.colorMode = $('colorMode').value; drawOverlay(); refreshTimeline(); });
 $('delayWindow').addEventListener('input', () => update());
 $('simMode').addEventListener('change', setSimMode);
-for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'surround']) $(id).addEventListener('input', queueViz);
+for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'simKrm', 'surround']) $(id).addEventListener('input', queueViz);
 $('volBase').addEventListener('change', queueViz);
-for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
+for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
 $('useTiming').addEventListener('change', () => update());
 $('tlPlay').onclick = togglePlay;
 $('tlReset').onclick = resetClock;

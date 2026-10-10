@@ -45,7 +45,8 @@ export function createRapierEngine(R, ground, blocks, opts = {}) {
     const desc = i >= movableFrom ? R.RigidBodyDesc.dynamic().setCanSleep(true).setSleeping(true) : R.RigidBodyDesc.fixed();
     const rb = world.createRigidBody(desc.setTranslation(p.x, p.y, p.z));
     const k = 0.9; // luz między bloczkami (spękany, rozluźniony urobek)
-    world.createCollider(R.ColliderDesc.cuboid((b.sx / 2) * k, (b.sz / 2) * k, (b.sy / 2) * k).setFriction(0.3).setRestitution(0.05).setDensity(2600), rb);
+    // tarcie i odbicie wg pomiarów dla wapienia z urobku (tarcie 0,576 ± 0,13, restytucja normalna 0,315 ± 0,064; MDPI Appl. Sci. 2025)
+    world.createCollider(R.ColliderDesc.cuboid((b.sx / 2) * k, (b.sz / 2) * k, (b.sy / 2) * k).setFriction(0.58).setRestitution(0.32).setDensity(2600), rb);
     rb.setAngularDamping(3); rb.setLinearDamping(0.1); // nieregularna skała nie turla się jak kostki
     return rb;
   });
@@ -172,8 +173,17 @@ export function relief3d(i, v, pos, nbrs, moved, relief, bias = null) {
 // Krzywa rzutu od zużycia jednostkowego MW (pf, kg/m³), wg doświadczenia: pf ≈ 0,1 – ława tylko się luzuje i pęka, prawie bez przemieszczenia;
 // pf ≈ 0,5 – normalny strzał (g = 1); pf ≥ 0,7 – daleki wyrzut (g ≈ 1,8), niski usyp. Powyżej ok. 1 kg/m³ nasycenie (g ≤ 3).
 export const HEAVE = 6; // [m/s] spęcznienie: każdy odstrzał podnosi się i opada; przy pf = 0,5 u góry ławy ok. 6 m/s w górę (≈ 1,8 m), u spągu ok. 40%
+// Richards & Moore (2004): prędkość wyrzutu v = k·(√m / B)^1,3 (m – ładunek [kg/m], B – zabiór lub przybitka [m]).
+// k dla flyrocku 13,5 (skała miękka) … 27 (twarda) – górna obwiednia; dla ruchu masy przyjmujemy mniejsze k (domyślnie 10, do kalibracji).
+export const K_RM = 10, V_MAX = 40;
+export const rmVelocity = (m, L, k = K_RM) => (m > 0 && L > 0 ? k * (Math.sqrt(m) / L) ** 1.3 : 0);
+// poniżej pf ≈ 0,1 ława tylko się luzuje: łagodne wygaszenie do pf = 0,3
+export const pfGate = (pf) => Math.min(1, Math.max(0, (pf - 0.1) / 0.2));
 export const PF_NONE = 0.1, PF_REF = 0.5, V_REF = 5; // V_REF [m/s]: prędkość pozioma przy pf = PF_REF (bez losowości i wpływu ściany)
-export function heave(pf, power, hf, u = 0.5) { return HEAVE * power * throwFactor(pf) * (0.4 + 0.6 * hf) * (0.85 + 0.3 * u); }
+export function heave(pf, power, hf, u = 0.5, vBase = null) { // vBase: prędkość R&M otworu (bez wpływu ściany); podrzut = 0,8·vBase
+  const base = vBase != null ? 0.8 * vBase * pfGate(pf) : HEAVE * throwFactor(pf);
+  return base * power * (0.4 + 0.6 * hf) * (0.85 + 0.3 * u);
+}
 export function throwFactor(pf) {
   if (!(pf > PF_NONE)) return 0;
   return Math.min(3, ((pf - PF_NONE) / (PF_REF - PF_NONE)) ** 1.5);
@@ -181,8 +191,9 @@ export function throwFactor(pf) {
 
 // Wyrzut w górę przy krótkiej przybitce (kratering): skalowana głębokość ukrycia ładunku SDoB = Dsb / Wt^(1/3) [m/kg^(1/3)],
 // Dsb = przybitka do góry ładunku + połowa 10 średnic, Wt = masa 10 średnic ładunku u góry (Chiappetta, McKenzie).
-// SDoB ≥ 1,4 – ładunek zamknięty, bez wyrzutu w górę; 0,92 – typowa granica projektowa; 0,6 – pełny kratering; niżej (przybitka ≈ 0) jeszcze silniej, do 1,5×.
-export const SDOB_SAFE = 1.4, SDOB_FULL = 0.6, V_CRATER = 22; // V_CRATER [m/s]: pionowa prędkość bloczka nad ładunkiem przy pełnym krateringu
+// SDoB > 1,3 – brak lub minimalny kratering; 0,4–1,2 – dopuszczalne; < 0,4 – silny wyrzut i podmuch (raporty wg Chiappetty/McKenzie);
+// 0,92–1,4 to zakres projektowy dla fragmentacji. Poniżej 0,4 wyrzut jeszcze rośnie, do 1,5×.
+export const SDOB_SAFE = 1.3, SDOB_FULL = 0.4, V_CRATER = 22; // V_CRATER [m/s]: pionowa prędkość bloczka nad ładunkiem przy pełnym krateringu
 export function sdob({ stemTop, kgPerM, diameterMm }) {
   const d = diameterMm / 1000;
   if (!(kgPerM > 0) || !(d > 0)) return Infinity;
@@ -208,7 +219,7 @@ export function reliefDirs(holes, R) {
   });
 }
 
-export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3, spacing = burden, power = 1, relief = 0.8, craterK = 1, rng = Math.random }) {
+export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3, spacing = burden, power = 1, relief = 0.8, craterK = 1, kRM = K_RM, rng = Math.random }) {
   const a0 = (az * Math.PI) / 180;
   const top = Math.max(...blocks.map((b) => b.z + b.sz / 2)) - floorZ || 1;
   const crater = holes.map((h) => (h.stemTop != null ? craterFactor(sdob(h)) : 0));
@@ -217,7 +228,9 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
     const h = holes[b.hole], pf = h.volume > 0 ? h.mass / h.volume : 0.4;
     const wFace = 0.45 + 0.55 * Math.exp(-distanceToEdge(polygon, b.x, b.y, az) / (3 * burden));
     const hf = Math.min(Math.max((b.z - floorZ) / top, 0), 1);               // 0 przy spągu, 1 przy wierzchu ławy
-    const vH = V_REF * power * throwFactor(pf) * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
+    const useRM = h.mPerM > 0 && burden > 0;
+    const vBase = useRM ? rmVelocity(h.mPerM, burden, kRM) : null;           // Richards & Moore (face burst) dla otworu
+    const vH = (useRM ? vBase * pfGate(pf) : V_REF * throwFactor(pf)) * power * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
     // kierunek: azymut nachylenia otworu (otwór pionowy – ku wolnej ścianie), wektor prostopadły do osi otworu:
     // przy nachyleniu α od pionu wylot jest pod kątem α nad poziomem; niewielkie rozproszenie ±10°
     const inclined = h.incl > 0.5 && h.inclAz != null;
@@ -226,7 +239,7 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
     if (rd) { const ux = Math.sin(a) + relief * rd.x, uy = Math.cos(a) + relief * rd.y; if (Math.hypot(ux, uy) > 1e-6) a = Math.atan2(ux, uy); } // azymut (0° = +Y)
     a += ((rng() - 0.5) * 20 * Math.PI) / 180;
     const el = inclined ? (h.incl * Math.PI) / 180 : 0;
-    const vh = vH * Math.cos(el), vUp0 = vH * Math.sin(el) + heave(pf, power, hf, rng()); // + spęcznienie (unoszenie) urobku, niezależne od odległości od ściany
+    const vh = vH * Math.cos(el), vUp0 = vH * Math.sin(el) + heave(pf, power, hf, rng(), vBase); // + spęcznienie (unoszenie) urobku, niezależne od odległości od ściany
     const v = { x: Math.sin(a) * vh, y: vUp0, z: -Math.cos(a) * vh };
     const cf = crater[b.hole] ?? 0, rr = rng();
     if (cf > 0 && craterK > 0 && h.z != null) {
@@ -238,7 +251,9 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
       const Dl = dsb + s + cf * 0.5 * top;
       const w = cf * Math.max(0, 1 - (r / R) ** 2) * Math.max(0, 1 - depth / Dl);
       if (w > 0) {
-        const vUp = V_CRATER * craterK * power * w * (0.75 + 0.5 * rr); // craterK: waga wyrzutu w górę (oś Z) do kalibracji
+        // prędkość krateringu wg Richards & Moore (przybitka zamiast zabioru), ograniczona do V_MAX; craterK – waga do kalibracji
+        const vc = h.kgPerM > 0 ? Math.min(V_MAX, rmVelocity(h.kgPerM, Math.max(0.1, h.stemTop), kRM)) : V_CRATER;
+        const vUp = vc * craterK * power * w * (0.75 + 0.5 * rr);
         const ang = r > 1e-3 ? Math.atan2(b.y - h.y, b.x - h.x) : rr * 2 * Math.PI;
         v.y += vUp; v.x += 0.45 * vUp * Math.cos(ang); v.z -= 0.45 * vUp * Math.sin(ang);
       }

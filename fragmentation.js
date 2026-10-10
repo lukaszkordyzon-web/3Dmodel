@@ -29,6 +29,11 @@ export function kuzRam({ A, Q, V0, rws = 100, B, S, D, W = 0.2, L, BCL, CCL, H }
 // Czynnik czasu A_t mnoży A: przy odpaleniu jednoczesnym ok. 2,1 (grubo), najlepsze rozdrobnienie przy T ≈ T_max (0,9),
 // przy dłuższym opóźnieniu powolny wzrost (otwory pracują osobno).
 export const tMaxMs = (B, cpKmS) => (15.6 * B) / cpKmS;
+// prędkość fali P w masywie (ośrodek sprężysty): c_p = √(E(1−ν) / (ρ(1+ν)(1−2ν))); E [GPa], ρ [t/m³] → km/s
+export function pWaveKmS(eGpa, rhoT, nu = 0.25) {
+  const n = Math.min(Math.max(nu, 0), 0.45);
+  return Math.sqrt((eGpa * 1e9 * (1 - n)) / (rhoT * 1000 * (1 + n) * (1 - 2 * n))) / 1000;
+}
 export function timingFactor(T, Tmax) {
   if (!(Tmax > 0) || !(T >= 0)) return 1;
   const x = T / Tmax;

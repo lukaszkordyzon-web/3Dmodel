@@ -132,7 +132,7 @@ import { sdob, craterFactor } from './physics.js';
 {
   const s05 = sdob({ stemTop: 0.5, kgPerM: 9, diameterMm: 102 }), s24 = sdob({ stemTop: 2.4, kgPerM: 9, diameterMm: 102 }), s4 = sdob({ stemTop: 4, kgPerM: 9, diameterMm: 102 });
   assert.ok(s05 < 0.6 && s24 > 1.3 && s4 > 1.4, `SDoB ${s05} ${s24} ${s4}`);
-  assert.equal(craterFactor(s4), 0); assert.ok(craterFactor(s05) > 1 && craterFactor(sdob({ stemTop: 0, kgPerM: 9, diameterMm: 102 })) > craterFactor(s05), 'przybitka 0 silniej niż 0,5 m');
+  assert.equal(craterFactor(s4), 0); assert.ok(craterFactor(s05) > 0.8 && craterFactor(sdob({ stemTop: 0, kgPerM: 9, diameterMm: 102 })) > craterFactor(s05), 'przybitka 0 silniej niż 0,5 m');
   const h0 = { x: 5, y: 3, z: 103, mass: 70, volume: 42, diameterMm: 102, kgPerM: 9 };
   const vy = (stemTop) => { seed = 5; const v = throwVelocities({ blocks, holes: [{ ...h0, stemTop }], polygon: poly, floorZ: 100, az: 90, burden: 3.5, rng }); return Math.max(...v.map((x) => x.v.y)); };
   assert.ok(vy(0.5) > vy(4) + 8, 'krótka przybitka: bloczek nad otworem wylatuje w górę');
