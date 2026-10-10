@@ -1142,7 +1142,7 @@ function describeViz(info, kind) {
 
 function sizeLegend(show) {
   const el = $('sizeLegend'); el.hidden = !show;
-  if (show && $('simColor').value === 'rock') { el.innerHTML = 'Rodzaj skały z MWD: <span style="color:#9a541f">■</span> glina, <span style="color:#f26b2e">■</span> strefa spękana, <span style="color:#f5d64d">■</span> słaba / marglista (UCS &lt; 65 MPa), <span style="color:#4d80f2">■</span> zwięzła (65–150 MPa), <span style="color:#944ddb">■</span> bardzo twarda (&gt; 150 MPa). Bez danych MWD kolor wg wielkości.'; el.dataset.ok = ''; return; }
+  if (show && $('simColor').value === 'rock') { el.innerHTML = 'Rodzaj skały z MWD: <span style="color:#5c3312">■</span> glina, <span style="color:#ed5c6b">■</span> strefa spękana, <span style="color:#f5d64d">■</span> słaba / marglista (UCS &lt; 65 MPa), <span style="color:#4d80f2">■</span> zwięzła (65–150 MPa), <span style="color:#944ddb">■</span> bardzo twarda (&gt; 150 MPa). Bez danych MWD kolor wg wielkości.'; el.dataset.ok = ''; return; }
   if (!show || el.dataset.ok) return;
   const css = (d) => { const c = sizeColor(d); return `rgb(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)})`; };
   const lo = SIZE_STOPS[0][0], hi = SIZE_STOPS[SIZE_STOPS.length - 1][0];
