@@ -711,7 +711,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm', 'mwdWapien', 'mwdZwiezla'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'simCrater', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter', 'useTiming', 'simKrm', 'mwdWapien', 'mwdZwiezla', 'mwdClay'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -923,18 +923,28 @@ function mwdSet() { return $('mwdWapien').checked ? 'wapien' : $('mwdZwiezla').c
 function ensureMwd() {
   const set = mwdSet();
   if (!set || !state.holes.length) { state.mwd = null; return null; }
-  const key = set + '|' + state.holes.map((h) => `${h.id}:${h.x.toFixed(2)},${h.y.toFixed(2)},${h.z.toFixed(2)},${h.length.toFixed(2)}`).join(';');
+  const key = set + ($('mwdClay').checked ? '+clay' : '') + '|' + state.holes.map((h) => `${h.id}:${h.x.toFixed(2)},${h.y.toFixed(2)},${h.z.toFixed(2)},${h.length.toFixed(2)}`).join(';');
   if (state.mwd?.key === key) return state.mwd;
   const P = state.polygon.length ? state.polygon : state.holes;
   const origin = { x: P.reduce((s, p) => s + p.x, 0) / P.length, y: P.reduce((s, p) => s + p.y, 0) / P.length, z: state.holes.reduce((s, h) => s + h.z, 0) / state.holes.length };
-  const faceAz = state.viz?.az ?? 90, geo = buildGeology(set, { origin, faceAz });
+  const faceAz = state.viz?.az ?? 90;
+  // przekładka gliny 2 m w połowie wysokości ściany w trzech skrajnych lewych otworach 1. szeregu (patrząc na ścianę od czoła: lewo = −Y)
+  let clayLens = null, clayHoles = [];
+  if (set === 'wapien' && $('mwdClay').checked) {
+    clayHoles = state.holes.filter((h) => h.ref?.row === 0).sort((p, q) => p.y - q.y).slice(0, 3);
+    if (clayHoles.length) {
+      const zc = clayHoles.reduce((s, h) => s + (h.z + h.toe.z) / 2, 0) / clayHoles.length;
+      clayLens = { pts: clayHoles.map((h) => ({ x: h.x, y: h.y })), zc, half: 1.0, reach: 2.6 };
+    }
+  }
+  const geo = buildGeology(set, { origin, faceAz, clayLens });
   const holes = state.holes.map((h) => {
     const samples = drillHole(geo, h, { seed: h.id });
     return { h, samples, it: interpretHole(samples, { density: geo.density }) };
   });
   const all = holes.flatMap((x) => Array.from(x.it.A)), allU = holes.flatMap((x) => Array.from(x.it.ucs));
   const mean = (v) => v.reduce((s, q) => s + q, 0) / Math.max(1, v.length);
-  state.mwd = { key, set, geo, holes, meanA: mean(all), minA: Math.min(...all), maxA: Math.max(...all), meanUcs: mean(allU), perM: mean(holes.map((x) => x.it.perM)) };
+  state.mwd = { key, set, geo, clayLens, clayHoles: clayHoles.map((h) => h.name), holes, meanA: mean(all), minA: Math.min(...all), maxA: Math.max(...all), meanUcs: mean(allU), perM: mean(holes.map((x) => x.it.perM)) };
   return state.mwd;
 }
 // Właściwości w punkcie z najbliższego otworu (w poziomie) na odpowiadającej głębokości.
@@ -946,7 +956,12 @@ function mwdField(x, y, z) {
   const h = best.h, dir = h.dir ?? { x: 0, y: 0, z: -1 };
   const d = (x - h.x) * dir.x + (y - h.y) * dir.y + (z - h.z) * dir.z;
   const i = Math.min(best.samples.length - 1, Math.max(0, Math.round(d / 0.1)));
-  return { A: best.it.A[i], ucs: best.it.ucs[i], fi: best.it.fi[i] };
+  // glina: z interpretacji MWD w najbliższym otworze albo z soczewki (bloczki przy ścianie między otworami)
+  const clay = best.it.clay[i] || (m.clayLens && m.geo.props(x, y, z, h.z).type === 'clay');
+  // skała do 1 m nad i pod gliną w tym samym otworze: energia ucieka w plastyczną warstwę → gorzej rozdrabnia
+  let nearClay = false;
+  for (let k = Math.max(0, i - 10); k <= Math.min(best.samples.length - 1, i + 10); k++) if (best.it.clay[k]) { nearClay = true; break; }
+  return { A: best.it.A[i], ucs: best.it.ucs[i], fi: best.it.fi[i], clay: !!clay, nearClay: !clay && nearClay };
 }
 function mwdFiles(set = mwdSet()) {
   const m = ensureMwd();
@@ -994,7 +1009,7 @@ function updateFrag() {
     ] : [['Opóźnienia', 'brak sieci – bez poprawki czasowej']]),
   ];
   out.replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
-  $('mwdInfo').textContent = mwdD ? `${MWD_SETS[mwdD.set].name}: ${mwdD.holes.length} otworów, ${mwdD.holes.reduce((s, o) => s + o.samples.length, 0).toLocaleString('pl')} próbek; UCS z MWD średnio ${fmt(mwdD.meanUcs, 0)} MPa, ${fmt(mwdD.perM, 1)} szczelin/m, A ${fmt(mwdD.minA, 1)}–${fmt(mwdD.maxA, 1)}.` : '';
+  $('mwdInfo').textContent = mwdD ? `${MWD_SETS[mwdD.set].name}: ${mwdD.holes.length} otworów, ${mwdD.holes.reduce((s, o) => s + o.samples.length, 0).toLocaleString('pl')} próbek; UCS z MWD średnio ${fmt(mwdD.meanUcs, 0)} MPa, ${fmt(mwdD.perM, 1)} szczelin/m, A ${fmt(mwdD.minA, 1)}–${fmt(mwdD.maxA, 1)}.` + (mwdD.clayHoles?.length ? ` Glina wykryta w otworach ${mwdD.clayHoles.join(', ')} (${mwdD.holes.filter((o) => mwdD.clayHoles.includes(o.h.name)).map((o) => fmt(o.it.clay.filter(Boolean).length * 0.1, 1) + ' m').join(', ')}). Ładunek w glinie pracuje słabo: rozważ przesypkę lub korek na tej głębokości.` : '') : '';
   drawFragChart();
 }
 
@@ -1121,7 +1136,7 @@ function describeViz(info, kind) {
   const around = info.rock ? ` Otoczenie skały: ${info.rock.toLocaleString('pl')} bloczków do ${fmt(info.rockDist, 0)} m od obrysu, takie same jak bloczki serii (zadane ${fmt(num("surround"), 1)} × zabiór ${fmt(vb.take, 0)} m).` : '';
   const sd = holeSdobs(), nCr = sd.filter((x) => x < SDOB_SAFE).length;
   const crater = nCr ? ` Krótka przybitka: ${nCr} z ${sd.length} otworów ma SDoB < ${fmt(SDOB_SAFE, 1)} (min ${fmt(Math.min(...sd), 2)}), bloczki nad ładunkiem wylatują w górę.` : '';
-  const mwdTxt = info.mwd ? ` MWD: współczynnik skały bloczków ${fmt(info.mwd.aMin, 1)}–${fmt(info.mwd.aMax, 1)} (warstwy i spękania z wiercenia).` : '';
+  const mwdTxt = info.mwd ? ` MWD: współczynnik skały bloczków ${fmt(info.mwd.aMin, 1)}–${fmt(info.mwd.aMax, 1)} (warstwy i spękania z wiercenia)${info.mwd.nClay ? `, glina: ${info.mwd.nClay} bloczków (brązowe, nie kruszą się, lżejsze i lepkie)` : ''}.` : '';
   $('simInfo').textContent = `${parts.join(', ')}.${base}${around}${crater}${mwdTxt}` + (eng ? ` Fizyka: ${eng}.` : '') + (noNet ? ' Brak sieci: wszystkie bloczki odpalą się naraz, połącz otwory.' : '');
 }
 
@@ -1405,6 +1420,7 @@ for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'sim
 $('volBase').addEventListener('change', queueViz);
 for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
 $('useTiming').addEventListener('change', () => update());
+$('mwdClay').addEventListener('change', () => { update(); queueViz(); });
 for (const [id, other] of [['mwdWapien', 'mwdZwiezla'], ['mwdZwiezla', 'mwdWapien']]) $(id).addEventListener('change', () => { if ($(id).checked) $(other).checked = false; update(); queueViz(); });
 $('tlPlay').onclick = togglePlay;
 $('tlReset').onclick = resetClock;

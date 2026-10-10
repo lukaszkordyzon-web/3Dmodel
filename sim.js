@@ -91,15 +91,20 @@ export class BlastViz {
     this.blockAf = null; this.mwdInfo = null;
     if (ctx.mwd?.field) {
       this.blockAf = new Float32Array(blocks.length);
-      let aMin = Infinity, aMax = -Infinity;
+      let aMin = Infinity, aMax = -Infinity, nClay = 0;
       blocks.forEach((b, i) => {
         const f = ctx.mwd.field(b.x, b.y, b.z);
         if (!f) { this.blockAf[i] = 1; return; }
         this.blockAf[i] = f.A / ctx.mwd.meanA; aMin = Math.min(aMin, f.A); aMax = Math.max(aMax, f.A);
-        const k = Math.min(1.25, Math.max(0.8, 0.8 + 0.2 * (f.ucs / ctx.mwd.meanUcs))) * (1 - 0.25 * f.fi);
+        let k = Math.min(1.25, Math.max(0.8, 0.8 + 0.2 * (f.ucs / ctx.mwd.meanUcs))) * (1 - 0.25 * f.fi);
+        if (f.clay) {
+          // glina: plastyczna, nie kruszy się (zostaje w bryłach), lżejsza (2,0 t/m³), lepka; gazy wypychają ją ku ścianie (wydmuch)
+          b.mat = 'clay'; b.rho = 2000; b.friction = 0.85; b.restitution = 0.03; nClay++;
+          k = 1.25;
+        } else if (f.nearClay) { this.blockAf[i] *= 1.35; k *= 0.85; } // skała przy glinie: energia ucieka w glinę → grubiej i wolniej
         for (const V of [this.vel[i], this.velPhys[i]]) { V.v.x *= k; V.v.y *= k; V.v.z *= k; V.vH *= k; }
       });
-      this.mwdInfo = { aMin, aMax };
+      this.mwdInfo = { aMin, aMax, nClay };
     }
     this.dirWorld = { x: Math.sin(az), z: -Math.cos(az) };
 
@@ -114,7 +119,7 @@ export class BlastViz {
       this.fragStart[i] = fp.length;
       const xb = x50 * (this.blockAf ? this.blockAf[i] : 1); // MWD: rozdrobnienie bloczka wg lokalnego współczynnika skały
       const smin = Math.min(b.sx, b.sy, b.sz), x = rrSample(rf(), xb, n) / 100;
-      if (x >= smin * 0.9) { this.whole[i] = 1; return; } // nadgabaryt: bloczek zostaje nienaruszony
+      if (b.mat === 'clay' || x >= smin * 0.9) { this.whole[i] = 1; return; } // nadgabaryt: bloczek zostaje nienaruszony
       const m = Math.min(mMax, Math.max(1, Math.round(smin / x)));
       for (let a = 0; a < m; a++) for (let c = 0; c < m; c++) for (let d = 0; d < m; d++) {
         const r = Math.min(1, Math.max(0.35, (rrSample(rf(), xb, n) / 100) / (smin / m)));
@@ -284,7 +289,8 @@ export class BlastViz {
       if (mode === 'time') {
         if (!fired) timeColor(this.tFireMax > this.tFireMin ? (tf - this.tFireMin) / (this.tFireMax - this.tFireMin) : 0, c);
         else { const fl = Math.max(0, 1 - age / 220); c.setRGB(0.26 + 0.74 * fl, 0.28 + 0.6 * fl, 0.3 + 0.4 * fl); }
-      } else if (fired && this.whole[i]) sizeColor(Math.cbrt(b.sx * b.sy * b.sz), c); // nadgabaryt: bloczek nie rozpadł się (cały bloczek)
+      } else if (b.mat === 'clay') c.setRGB(0.55, 0.38, 0.22); // glina: brązowa
+      else if (fired && this.whole[i]) sizeColor(Math.cbrt(b.sx * b.sy * b.sz), c); // nadgabaryt: bloczek nie rozpadł się (cały bloczek)
       else { const g = 0.45 * this.blockGray[i]; c.setRGB(g, g * 1.03, g * 1.1); }
       this.blockMesh.setColorAt(i, c);
       // odłamki tego bloczka

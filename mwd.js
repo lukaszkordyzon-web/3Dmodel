@@ -49,7 +49,17 @@ export const MWD_SETS = {
 };
 
 // Model geologii dla zestawu; origin – punkt odniesienia (np. środek obrysu), zTop – przybliżony wierzch ławy.
-export function buildGeology(setId, { origin = { x: 0, y: 0, z: 0 }, faceAz = 90, seed = 7 } = {}) {
+// clayLens: { pts: [{x,y}], zc, half, reach } – przekładka gliny wokół wskazanych otworów (np. 2 m w połowie wysokości ściany)
+export const CLAY = { ucs: 1.5, density: 2.0, label: 'glina (przekładka)' };
+function inClayLens(L, x, y, z) {
+  if (!L) return 0;
+  let dh = Infinity;
+  for (const p of L.pts) dh = Math.min(dh, Math.hypot(x - p.x, y - p.y));
+  if (dh > L.reach) return 0;
+  const t = 1 - (dh / L.reach) ** 2, half = L.half * (0.4 + 0.6 * t);             // soczewka: cieńsza ku brzegom
+  return Math.abs(z - L.zc) <= half ? 1 : 0;
+}
+export function buildGeology(setId, { origin = { x: 0, y: 0, z: 0 }, faceAz = 90, seed = 7, clayLens = null } = {}) {
   const r = rngOf(seed * 7919 + (setId === 'wapien' ? 1 : 2));
   const o = origin;
   if (setId === 'wapien') {
@@ -77,6 +87,7 @@ export function buildGeology(setId, { origin = { x: 0, y: 0, z: 0 }, faceAz = 90
         if (depth < 1.0) frac = Math.max(frac, 0.55 * (1 - depth));                                  // strefa naruszona przewiertem/strzałem z wyższej ławy
         let isVoid = false;
         for (const v of voids) if (Math.hypot(lx - v.x, ly - v.y, (lz - v.z) * 1.6) < v.rad) { isVoid = L.type === 'lime'; if (isVoid) break; }
+        if (inClayLens(clayLens, x, y, z)) return { ucs: CLAY.ucs, frac: 0.15, clay: 1, void: false, type: 'clay', label: CLAY.label, density: CLAY.density };
         return { ucs: L.ucs, frac: clamp(frac, 0, 1), clay: L.clay, void: isVoid, type: L.type, label: L.label };
       },
     };
@@ -119,6 +130,7 @@ export function drillHole(geo, hole, { step = 0.1, seed = 1 } = {}) {
     let damp = 52 + 28 * p.frac + 2 * n();
     let flush = 9.2 - 3.5 * p.frac + 2.5 * p.clay + 0.25 * n();
     let rpm = 118 - 14 * p.clay - 8 * (rot > 90 ? 1 : 0) + 2 * n();
+    if (p.type === 'clay') { rop = 5.5 + 1.2 * r(); feed = 42 + 4 * n(); perc = 145 + 8 * n(); rot = 0.6 * (95 + 10 * r()) + 0.4 * rotPrev; damp = 58 + 3 * n(); flush = 12.5 + 0.8 * n(); rpm = 92 + 4 * n(); } // glina: szybko, lepko, zatyka płuczkę
     if (p.void) { rop = 7 + 2 * r(); feed = 30 + 5 * n(); perc = 110 + 10 * n(); rot = 32 + 3 * n(); damp = 95 + 5 * n(); flush = 3 + n(); }
     rot = 0.6 * rot + 0.4 * rotPrev; rotPrev = rot;                                  // bezwładność układu obrotu
     t += (step / Math.max(0.05, rop)) * 60;
@@ -138,6 +150,9 @@ export function interpretHole(samples, { density = 2.6, jpa = 30 } = {}) {
     for (let j = Math.max(0, i - 5); j <= Math.min(n - 1, i + 5); j++) { m += samples[j].rot; c++; }
     fi[i] = clamp(Math.abs(s.rot - m / c) / 18 + (s.damp - 52) / 40 + Math.max(0, 9 - s.flush) / 8, 0, 1);
   }
+  // glina: bardzo szybkie wiercenie przy wysokim ciśnieniu obrotu i podwyższonym ciśnieniu płuczki (zatykanie)
+  const clay = Array.from(samples, (s) => s.rop > 4.5 && s.rot > 75 && s.flush > 11);
+  for (let i = 0; i < n; i++) if (clay[i]) { ucs[i] = 2; fi[i] = 0.2; }
   const frac = Array.from(fi, (v, i) => v > 0.45 && (i === 0 || fi[i - 1] <= 0.45));  // początek zdarzenia = szczelina
   const A = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -147,11 +162,11 @@ export function interpretHole(samples, { density = 2.6, jpa = 30 } = {}) {
     const rmd = fi[i] > 0.6 ? 10 : fi[i] > 0.3 ? 20 : 50;
     const E = 0.35 * ucs[i];                                                          // E [GPa] ≈ 0,35·UCS [MPa] (przybliżenie)
     const hf = E < 50 ? E / 3 : ucs[i] / 5;
-    A[i] = 0.06 * (rmd + jps + jpa + (25 * density - 50) + hf);
+    A[i] = clay[i] ? 0.06 * (10 + 10 + jpa + 1 + 1) : 0.06 * (rmd + jps + jpa + (25 * density - 50) + hf); // glina: masyw „pylasty”, RDI dla ρ ≤ 2 = 1
   }
   const mean = (a) => a.reduce((s, v) => s + v, 0) / Math.max(1, a.length);
   const len = samples.length ? samples[n - 1].depth : 0;
-  return { ucs, fi, A, fractures: frac.filter(Boolean).length, perM: len > 0 ? frac.filter(Boolean).length / len : 0, meanUcs: mean(ucs), meanA: mean(A) };
+  return { ucs, fi, A, clay, fractures: frac.filter(Boolean).length, perM: len > 0 ? frac.filter(Boolean).length / len : 0, meanUcs: mean(ucs), meanA: mean(A) };
 }
 
 export function mwdCsv(samples, { planId = '', holeId = '', holeName = '', setName = '' } = {}) {

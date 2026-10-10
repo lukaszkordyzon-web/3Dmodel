@@ -1,6 +1,6 @@
 # Syntetyczne dane MWD (do testów, nie z rzeczywistej wiertnicy)
 # Zestaw: Wapień warstwowany (upad 25° na N, strzał prostopadle do upadu)
-# PlanId: ab7a276b132b; HoleId: 14; HoleName: 2.14
+# PlanId: ca00a6b7fd70; HoleId: 14; HoleName: 2.14
 Depth_m;Time_s;PenetrationRate_m_min;FeedPressure_bar;PercussionPressure_bar;RotationPressure_bar;DamperPressure_bar;FlushPressure_bar;RotationSpeed_rpm;X;Y;Z
 0;4.7;1.288;34.3;140;67.4;65.8;7.03;118;4.00;6.00;5.96
 0.1;8.6;1.541;46.3;151.6;64.7;66.4;7.5;120;4.00;6.00;5.86

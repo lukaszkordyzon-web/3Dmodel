@@ -46,7 +46,7 @@ export function createRapierEngine(R, ground, blocks, opts = {}) {
     const rb = world.createRigidBody(desc.setTranslation(p.x, p.y, p.z));
     const k = 0.9; // luz między bloczkami (spękany, rozluźniony urobek)
     // tarcie i odbicie wg pomiarów dla wapienia z urobku (tarcie 0,576 ± 0,13, restytucja normalna 0,315 ± 0,064; MDPI Appl. Sci. 2025)
-    world.createCollider(R.ColliderDesc.cuboid((b.sx / 2) * k, (b.sz / 2) * k, (b.sy / 2) * k).setFriction(0.58).setRestitution(0.32).setDensity(2600), rb);
+    world.createCollider(R.ColliderDesc.cuboid((b.sx / 2) * k, (b.sz / 2) * k, (b.sy / 2) * k).setFriction(b.friction ?? 0.58).setRestitution(b.restitution ?? 0.32).setDensity(b.rho ?? 2600), rb); // materiał bloczka (np. glina: lżejsza, lepka)
     rb.setAngularDamping(3); rb.setLinearDamping(0.1); // nieregularna skała nie turla się jak kostki
     return rb;
   });
