@@ -961,7 +961,7 @@ function mwdField(x, y, z) {
   // skała do 1 m nad i pod gliną w tym samym otworze: energia ucieka w plastyczną warstwę → gorzej rozdrabnia
   let nearClay = false;
   for (let k = Math.max(0, i - 10); k <= Math.min(best.samples.length - 1, i + 10); k++) if (best.it.clay[k]) { nearClay = true; break; }
-  return { A: best.it.A[i], ucs: best.it.ucs[i], fi: best.it.fi[i], clay: !!clay, nearClay: !clay && nearClay };
+  return { A: best.it.A[i], ucs: best.it.ucs[i], fi: best.it.fi[i], clay: !!clay, nearClay: !clay && nearClay, clayHole: best.it.clay.some(Boolean) };
 }
 function mwdFiles(set = mwdSet()) {
   const m = ensureMwd();
@@ -1420,8 +1420,8 @@ for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'simRelief', 'sim
 $('volBase').addEventListener('change', queueViz);
 for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockNu', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
 $('useTiming').addEventListener('change', () => update());
-$('mwdClay').addEventListener('change', () => { update(); queueViz(); });
-for (const [id, other] of [['mwdWapien', 'mwdZwiezla'], ['mwdZwiezla', 'mwdWapien']]) $(id).addEventListener('change', () => { if ($(id).checked) $(other).checked = false; update(); queueViz(); });
+$('mwdClay').addEventListener('change', () => { if ($('mwdClay').checked) { $('mwdWapien').checked = true; $('mwdZwiezla').checked = false; } update(); queueViz(); });
+for (const [id, other] of [['mwdWapien', 'mwdZwiezla'], ['mwdZwiezla', 'mwdWapien']]) $(id).addEventListener('change', () => { if ($(id).checked) $(other).checked = false; if (!$('mwdWapien').checked) $('mwdClay').checked = false; update(); queueViz(); });
 $('tlPlay').onclick = togglePlay;
 $('tlReset').onclick = resetClock;
 $('tlSlider').addEventListener('input', () => {

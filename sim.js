@@ -98,10 +98,14 @@ export class BlastViz {
         this.blockAf[i] = f.A / ctx.mwd.meanA; aMin = Math.min(aMin, f.A); aMax = Math.max(aMax, f.A);
         let k = Math.min(1.25, Math.max(0.8, 0.8 + 0.2 * (f.ucs / ctx.mwd.meanUcs))) * (1 - 0.25 * f.fi);
         if (f.clay) {
-          // glina: plastyczna, nie kruszy się (zostaje w bryłach), lżejsza (2,0 t/m³), lepka; gazy wypychają ją ku ścianie (wydmuch)
+          // glina: plastyczna, pochłania energię i nie kruszy się (zostaje w bryłach), lżejsza (2,0 t/m³), lepka – prawie się nie rzuca
           b.mat = 'clay'; b.rho = 2000; b.friction = 0.85; b.restitution = 0.03; nClay++;
-          k = 1.25;
-        } else if (f.nearClay) { this.blockAf[i] *= 1.35; k *= 0.85; } // skała przy glinie: energia ucieka w glinę → grubiej i wolniej
+          k = 0.35;
+        } else {
+          // otwór przechodzący przez glinę: gazy uchodzą w plastyczną warstwę, ciśnienie w otworze spada → cały słup słabiej rzuca i grubiej kruszy
+          if (f.clayHole) { k *= 0.6; this.blockAf[i] *= 1.25; }
+          if (f.nearClay) { this.blockAf[i] *= 1.3; k *= 0.8; } // skała tuż nad i pod gliną: najsłabiej (bloki, nadgabaryt)
+        }
         for (const V of [this.vel[i], this.velPhys[i]]) { V.v.x *= k; V.v.y *= k; V.v.z *= k; V.vH *= k; }
       });
       this.mwdInfo = { aMin, aMax, nClay };
