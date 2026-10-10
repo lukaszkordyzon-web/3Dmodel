@@ -90,13 +90,14 @@ import { throwFactor } from './physics.js';
 assert.equal(throwFactor(0.1), 0); assert.equal(throwFactor(0.05), 0);
 assert.ok(Math.abs(throwFactor(0.5) - 1) < 1e-9);
 assert.ok(throwFactor(0.7) > 1.6 && throwFactor(0.7) < 2.1 && throwFactor(0.3) < 0.5 && throwFactor(5) <= 3);
+import { HEAVE } from './physics.js';
 // kierunek wyrzutu: azymut nachylenia otworu, wektor prostopadły do osi (wylot pod kątem nachylenia nad poziomem)
 {
   seed = 9; const vi = throwVelocities({ blocks, holes: [{ x: 5, y: 3, mass: 70, volume: 42, incl: 20, inclAz: 0 }], polygon: poly, floorZ: 100, az: 90, burden: 3.5, rng });
   const mx = vi.reduce((s, x) => s + x.v.x, 0), my = vi.reduce((s, x) => s - x.v.z, 0);
   assert.ok(my > 5 * Math.abs(mx), 'kierunek wg azymutu otworu (0° = +Y), nie wg ściany (90°)');
-  const elev = Math.atan2(vi[0].v.y - 0.5 * Math.min(1, vi[0].vH), Math.hypot(vi[0].v.x, vi[0].v.z)) * 180 / Math.PI;
-  assert.ok(Math.abs(elev - 20) < 0.5, `kąt wylotu = nachylenie otworu (${elev})`);
+  const elev = Math.atan2(vi[0].v.y, Math.hypot(vi[0].v.x, vi[0].v.z)) * 180 / Math.PI; // ze spęcznieniem: kąt ≥ nachylenia
+  assert.ok(elev > 20 && elev < 80, `kąt wylotu ≥ nachylenie otworu (${elev})`);
 }
 // otwarcie serii: urobek przesuwa się w stronę wcześniej odpalonych sąsiadów
 import { reliefDirs } from './physics.js';
@@ -131,7 +132,7 @@ import { sdob, craterFactor } from './physics.js';
 {
   const s05 = sdob({ stemTop: 0.5, kgPerM: 9, diameterMm: 102 }), s24 = sdob({ stemTop: 2.4, kgPerM: 9, diameterMm: 102 }), s4 = sdob({ stemTop: 4, kgPerM: 9, diameterMm: 102 });
   assert.ok(s05 < 0.6 && s24 > 1.3 && s4 > 1.4, `SDoB ${s05} ${s24} ${s4}`);
-  assert.equal(craterFactor(s4), 0); assert.equal(craterFactor(s05), 1);
+  assert.equal(craterFactor(s4), 0); assert.ok(craterFactor(s05) > 1 && craterFactor(sdob({ stemTop: 0, kgPerM: 9, diameterMm: 102 })) > craterFactor(s05), 'przybitka 0 silniej niż 0,5 m');
   const h0 = { x: 5, y: 3, z: 103, mass: 70, volume: 42, diameterMm: 102, kgPerM: 9 };
   const vy = (stemTop) => { seed = 5; const v = throwVelocities({ blocks, holes: [{ ...h0, stemTop }], polygon: poly, floorZ: 100, az: 90, burden: 3.5, rng }); return Math.max(...v.map((x) => x.v.y)); };
   assert.ok(vy(0.5) > vy(4) + 8, 'krótka przybitka: bloczek nad otworem wylatuje w górę');

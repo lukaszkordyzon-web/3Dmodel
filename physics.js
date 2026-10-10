@@ -171,7 +171,9 @@ export function relief3d(i, v, pos, nbrs, moved, relief, bias = null) {
 // kierunek ku wolnej ścianie, większe przy ścianie i u góry ławy, skalowane jednostkowym zużyciem MW i parametrem power.
 // Krzywa rzutu od zużycia jednostkowego MW (pf, kg/m³), wg doświadczenia: pf ≈ 0,1 – ława tylko się luzuje i pęka, prawie bez przemieszczenia;
 // pf ≈ 0,5 – normalny strzał (g = 1); pf ≥ 0,7 – daleki wyrzut (g ≈ 1,8), niski usyp. Powyżej ok. 1 kg/m³ nasycenie (g ≤ 3).
+export const HEAVE = 6; // [m/s] spęcznienie: każdy odstrzał podnosi się i opada; przy pf = 0,5 u góry ławy ok. 6 m/s w górę (≈ 1,8 m), u spągu ok. 40%
 export const PF_NONE = 0.1, PF_REF = 0.5, V_REF = 5; // V_REF [m/s]: prędkość pozioma przy pf = PF_REF (bez losowości i wpływu ściany)
+export function heave(pf, power, hf, u = 0.5) { return HEAVE * power * throwFactor(pf) * (0.4 + 0.6 * hf) * (0.85 + 0.3 * u); }
 export function throwFactor(pf) {
   if (!(pf > PF_NONE)) return 0;
   return Math.min(3, ((pf - PF_NONE) / (PF_REF - PF_NONE)) ** 1.5);
@@ -179,8 +181,8 @@ export function throwFactor(pf) {
 
 // Wyrzut w górę przy krótkiej przybitce (kratering): skalowana głębokość ukrycia ładunku SDoB = Dsb / Wt^(1/3) [m/kg^(1/3)],
 // Dsb = przybitka do góry ładunku + połowa 10 średnic, Wt = masa 10 średnic ładunku u góry (Chiappetta, McKenzie).
-// SDoB ≥ 1,4 – ładunek zamknięty, bez wyrzutu w górę; 0,92 – typowa granica projektowa; ≤ 0,6 – pełny kratering.
-export const SDOB_SAFE = 1.4, SDOB_FULL = 0.6, V_CRATER = 18; // V_CRATER [m/s]: pionowa prędkość bloczka nad ładunkiem przy pełnym krateringu
+// SDoB ≥ 1,4 – ładunek zamknięty, bez wyrzutu w górę; 0,92 – typowa granica projektowa; 0,6 – pełny kratering; niżej (przybitka ≈ 0) jeszcze silniej, do 1,5×.
+export const SDOB_SAFE = 1.4, SDOB_FULL = 0.6, V_CRATER = 22; // V_CRATER [m/s]: pionowa prędkość bloczka nad ładunkiem przy pełnym krateringu
 export function sdob({ stemTop, kgPerM, diameterMm }) {
   const d = diameterMm / 1000;
   if (!(kgPerM > 0) || !(d > 0)) return Infinity;
@@ -188,7 +190,7 @@ export function sdob({ stemTop, kgPerM, diameterMm }) {
   return (Math.max(0, stemTop) + 5 * d) / Math.cbrt(wt);
 }
 export function craterFactor(s) {
-  return Math.min(1, Math.max(0, (SDOB_SAFE - s) / (SDOB_SAFE - SDOB_FULL)));
+  return Math.min(1.5, Math.max(0, (SDOB_SAFE - s) / (SDOB_SAFE - SDOB_FULL))); // > 1 poniżej SDoB 0,6: przybitka ≈ 0 – wyrzut masowy
 }
 
 // Kierunek „odciążenia”: suma wektorów jednostkowych od otworu do sąsiadów (w promieniu R) odpalonych wcześniej.
@@ -224,15 +226,17 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
     if (rd) { const ux = Math.sin(a) + relief * rd.x, uy = Math.cos(a) + relief * rd.y; if (Math.hypot(ux, uy) > 1e-6) a = Math.atan2(ux, uy); } // azymut (0° = +Y)
     a += ((rng() - 0.5) * 20 * Math.PI) / 180;
     const el = inclined ? (h.incl * Math.PI) / 180 : 0;
-    const vh = vH * Math.cos(el), vUp0 = vH * Math.sin(el) + Math.min(1, vH) * 0.5; // + lekkie spęcznienie urobku
+    const vh = vH * Math.cos(el), vUp0 = vH * Math.sin(el) + heave(pf, power, hf, rng()); // + spęcznienie (unoszenie) urobku, niezależne od odległości od ściany
     const v = { x: Math.sin(a) * vh, y: vUp0, z: -Math.cos(a) * vh };
     const cf = crater[b.hole] ?? 0, rr = rng();
     if (cf > 0 && craterK > 0 && h.z != null) {
       // stożek krateru nad górą ładunku: im bliżej otworu i wylotu, tym mocniej w górę i na boki
       const s = Math.max(b.sx, b.sz), dsb = Math.max(0, h.stemTop) + 0.005 * h.diameterMm;
-      const r = Math.hypot(b.x - h.x, b.y - h.y), R = 1.2 * dsb + s;
+      // im mniejsze SDoB, tym szerszy i głębszy stożek: przy przybitce ≈ 0 wyrzut masowy z dużej części ławy
+      const r = Math.hypot(b.x - h.x, b.y - h.y), R = 1.2 * dsb + s + cf * 0.6 * burden;
       const depth = Math.max(0, h.z - (b.z + b.sz / 2));                    // głębokość wierzchu bloczka pod wylotem otworu
-      const w = cf * Math.max(0, 1 - r / R) * Math.max(0, 1 - depth / (dsb + s));
+      const Dl = dsb + s + cf * 0.5 * top;
+      const w = cf * Math.max(0, 1 - (r / R) ** 2) * Math.max(0, 1 - depth / Dl);
       if (w > 0) {
         const vUp = V_CRATER * craterK * power * w * (0.75 + 0.5 * rr); // craterK: waga wyrzutu w górę (oś Z) do kalibracji
         const ang = r > 1e-3 ? Math.atan2(b.y - h.y, b.x - h.x) : rr * 2 * Math.PI;

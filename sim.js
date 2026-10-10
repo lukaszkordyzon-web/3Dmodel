@@ -188,9 +188,10 @@ export class BlastViz {
       // (czynnik krateringu z SDoB otworu × „Wpływ przybitki na wyrzut w górę”); przy dobrej przybitce waga 0
       const colTop = new Map(), ck = (b) => `${b.x.toFixed(2)},${b.y.toFixed(2)}`;
       for (const b of this.blocks) colTop.set(ck(b), Math.max(colTop.get(ck(b)) ?? -Infinity, b.z + b.sz / 2));
-      const reach = 1.8 * this.size, AIR = 1.5; // AIR [m]: waga powietrza jak sąsiad, który odjechał o 1,5 m
+      const AIR = 3; // AIR [m]: waga powietrza jak sąsiad, który odjechał o 3 m
       const air = this.blocks.map((b, i) => {
         const depth = colTop.get(ck(b)) - (b.z + b.sz / 2), cf = this.velPhys[i].crater ?? 0;
+        const reach = 1.8 * this.size + cf * 0.5 * this.height; // im krótsza przybitka, tym głębiej sięga „powietrze”
         return cf > 0 && depth < reach ? AIR * cf * this.craterK * (1 - depth / reach) : 0;
       });
       this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.velPhys[i].v, w: this.velPhys[i].w })),
