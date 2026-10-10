@@ -24,6 +24,40 @@ export function kuzRam({ A, Q, V0, rws = 100, B, S, D, W = 0.2, L, BCL, CCL, H }
   return { x50, n, xc: x50 / Math.LN2 ** (1 / n) };
 }
 
+// Wpływ opóźnień (rozszerzony Kuz-Ram, Cunningham 2005, przybliżenie krzywej):
+// T_max = 15,6 · B / c_p [ms] (B w m, c_p w km/s) – czas, w którym fala przejdzie zabiór i wróci.
+// Czynnik czasu A_t mnoży A: przy odpaleniu jednoczesnym ok. 2,1 (grubo), najlepsze rozdrobnienie przy T ≈ T_max (0,9),
+// przy dłuższym opóźnieniu powolny wzrost (otwory pracują osobno).
+export const tMaxMs = (B, cpKmS) => (15.6 * B) / cpKmS;
+export function timingFactor(T, Tmax) {
+  if (!(Tmax > 0) || !(T >= 0)) return 1;
+  const x = T / Tmax;
+  return x < 1 ? 0.9 + 1.2 * (1 - x) ** 1.5 : 0.9 + 0.1 * (x - 1);
+}
+// Rozrzut czasów zapalników względem opóźnienia (Rs = σ_t / T) obniża n: n_s = 0,206 + (1 − Rs/4)^0,8, unormowane do Rs = 0.
+export function scatterFactor(Rs) {
+  const r = Math.min(Math.max(Rs, 0), 2);
+  return (0.206 + (1 - r / 4) ** 0.8) / 1.206;
+}
+// Opóźnienie odciążające każdego otworu: ile ms po najbliższym wcześniej odpalonym sąsiedzie (w promieniu R) odpala.
+// Zwraca medianę dla strzału (null, jeśli brak czasów).
+export function reliefDelay(holes, R) {
+  const ds = [];
+  for (const h of holes) {
+    if (h.tFire == null) continue;
+    let best = Infinity, bd = Infinity;
+    for (const o of holes) {
+      if (o === h || o.tFire == null || o.tFire >= h.tFire) continue;
+      const d = Math.hypot(o.x - h.x, o.y - h.y);
+      if (d <= R && d < bd) { bd = d; best = h.tFire - o.tFire; }
+    }
+    if (Number.isFinite(best)) ds.push(best);
+  }
+  if (!ds.length) return null;
+  ds.sort((a, b) => a - b);
+  return ds[Math.floor(ds.length / 2)];
+}
+
 // Rozkład Rosina-Rammlera: udział przechodzący przez sito x [cm].
 export const passing = (x, x50, n) => 1 - Math.exp(-Math.LN2 * (x / x50) ** n);
 export const retained = (x, x50, n) => Math.exp(-Math.LN2 * (x / x50) ** n);

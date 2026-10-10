@@ -8,7 +8,7 @@ import { buildIredesXml, newPlanId } from './iredes.js';
 import { pl2000ToLonLat } from './geo.js';
 import { buildProfile, drawProfile } from './profile.js';
 import { computeTiming, maxChargeInWindow, groupByTime, autoNetwork } from './network.js';
-import { lillyA, kuzRam, retained, passing } from './fragmentation.js';
+import { lillyA, kuzRam, retained, passing, tMaxMs, timingFactor, scatterFactor, reliefDelay } from './fragmentation.js';
 import { BlastViz, timeColor, SIZE_STOPS, sizeColor } from './sim.js';
 import { sdob, SDOB_SAFE } from './physics.js';
 
@@ -710,7 +710,7 @@ function exportXml() {
 const realOf = (p) => [p.x + state.center.x + num('offX'), p.y + state.center.y + num('offY'), p.z + zShift()];
 const localOf = (p) => ({ ...p, x: p.x - state.center.x - num('offX'), y: p.y - state.center.y - num('offY'), z: p.z - zShift() });
 
-const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize'];
+const UI_IDS = ['netConn', 'delayWindow', 'autoPattern', 'autoAlong', 'autoBetween', 'surfaceCat', 'inholeCat', 'colorMode', 'blkSize', 'maxBlocks', 'simAz', 'simPower', 'volBase', 'surround', 'rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter'];
 
 function projectToJson() {
   const R = (p) => { const [x, y, z] = realOf(p); return { ...p, x, y, z }; };
@@ -929,14 +929,29 @@ function updateFrag() {
   for (const h of hs) for (const [id, m] of Object.entries(h.byProduct)) { mw += m; mr += m * (state.products.find((p) => p.id === id)?.rws ?? 100); }
   const rws = mw ? mr / mw : 100;
   if (!(A > 0) || !(L > 0) || !(H > 0)) { out.replaceChildren(); drawFragChart(); return; }
-  const r = kuzRam({ A, Q, V0: pat.burden * pat.spacing * H, rws, B: pat.burden, S: pat.spacing, D: tp.diameter, W: num('drillSd'), L, BCL, CCL: Math.max(0, L - BCL), H });
+  const r0 = kuzRam({ A, Q, V0: pat.burden * pat.spacing * H, rws, B: pat.burden, S: pat.spacing, D: tp.diameter, W: num('drillSd'), L, BCL, CCL: Math.max(0, L - BCL), H });
+  // opóźnienia: czynnik czasu A_t (opóźnienie odciążające względem T_max) i rozrzut zapalników (obniża n)
+  const rhoR = num('rockRho') || 2.6, cp = Math.sqrt((num('rockE') * 1e9) / (rhoR < 100 ? rhoR * 1000 : rhoR)) / 1000; // km/s (gęstość w t/m³ lub kg/m³)
+  const T = reliefDelay(state.holes, 1.6 * Math.max(pat.burden, pat.spacing)), Tmax = tMaxMs(pat.burden, cp);
+  const At = T != null && cp > 0 ? timingFactor(T, Tmax) : 1;
+  const sig = (num('detScatter') / 100) * mean((h) => h.inholeMs ?? 500) * Math.SQRT2; // rozrzut różnicy czasów dwóch sąsiednich otworów
+  const Rs = T > 0 ? sig / T : 0, ns = T != null ? scatterFactor(Rs) : 1;
+  const x50 = r0.x50 * At, n = Math.min(Math.max(r0.n * ns, 0.3), 3);
+  const r = { x50, n, xc: x50 / Math.LN2 ** (1 / n), x50base: r0.x50, nBase: r0.n };
   const xo = num('oversize') || 100;
-  state.frag = { ...r, A, rws, xo, oversizePct: retained(xo, r.x50, r.n) * 100, x80: r.xc * Math.log(5) ** (1 / r.n), pf: Q / (pat.burden * pat.spacing * H), n: r.n };
+  state.frag = { ...r, A, rws, xo, T, Tmax, At, Rs, ns, cp, oversizePct: retained(xo, r.x50, r.n) * 100, x80: r.xc * Math.log(5) ** (1 / r.n), pf: Q / (pat.burden * pat.spacing * H), n: r.n };
   const f = state.frag;
   const rows = [
     ['Współczynnik skały A', fmt(A, 1)], ['Średnia siła MW (ANFO = 100)', fmt(rws, 0)], ['Zużycie jednostkowe', `${fmt(f.pf, 2)} kg/m³`],
     ['X50 (rozmiar mediany)', `${fmt(f.x50, 0)} cm`], ['X80', `${fmt(f.x80, 0)} cm`], ['Wskaźnik jednorodności n', fmt(f.n, 2)],
     [`Nadgabaryt > ${fmt(xo, 0)} cm`, `${fmt(f.oversizePct, 1)} %`],
+    ...(f.T != null ? [
+      ['Opóźnienie odciążające T (mediana)', `${fmt(f.T, 0)} ms`],
+      ['T_max = 15,6·B/c_p', `${fmt(f.Tmax, 1)} ms (c_p ${fmt(f.cp, 2)} km/s)`],
+      ['Czynnik czasu A_t (mnoży X50)', `${fmt(f.At, 2)} – ${f.T < 0.7 * f.Tmax ? 'opóźnienie za krótkie, grubiej' : f.T <= 1.5 * f.Tmax ? 'blisko optimum' : 'długie opóźnienie, otwory pracują osobno'}`],
+      ['Rozrzut zapalników σ/T → n ×', `${fmt(f.Rs, 2)} → ${fmt(f.ns, 2)}`],
+      ['X50 / n bez wpływu opóźnień', `${fmt(f.x50base, 0)} cm / ${fmt(f.nBase, 2)}`],
+    ] : [['Opóźnienia', 'brak sieci – bez poprawki czasowej']]),
   ];
   out.replaceChildren(...rows.flatMap(([k, v]) => { const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; return [dt, dd]; }));
   drawFragChart();
@@ -1310,7 +1325,7 @@ $('delayWindow').addEventListener('input', () => update());
 $('simMode').addEventListener('change', setSimMode);
 for (const id of ['blkSize', 'maxBlocks', 'simAz', 'simPower', 'surround']) $(id).addEventListener('input', queueViz);
 $('volBase').addEventListener('change', queueViz);
-for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize']) $(id).addEventListener('input', () => update());
+for (const id of ['rmd', 'jps', 'jpa', 'rockRho', 'rockE', 'rockUcs', 'rockA', 'drillSd', 'oversize', 'detScatter']) $(id).addEventListener('input', () => update());
 $('tlPlay').onclick = togglePlay;
 $('tlReset').onclick = resetClock;
 $('tlSlider').addEventListener('input', () => {

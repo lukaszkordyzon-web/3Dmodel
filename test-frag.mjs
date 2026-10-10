@@ -85,3 +85,18 @@ import { distToEdge } from './blast.js';
   assert.ok(r2.blocks.every((b) => b.x < 20 + 0.01));
   console.log('buildSurround: OK');
 }
+
+// opóźnienia (Cunningham 2005): czynnik czasu i rozrzut
+import { tMaxMs, timingFactor, scatterFactor, reliefDelay } from './fragmentation.js';
+{
+  const Tm = tMaxMs(4, 4.76);
+  assert.ok(Math.abs(Tm - 13.1) < 0.1);
+  assert.ok(Math.abs(timingFactor(0, Tm) - 2.1) < 1e-9 && Math.abs(timingFactor(Tm, Tm) - 0.9) < 1e-9);
+  assert.ok(timingFactor(67, Tm) > timingFactor(17, Tm) + 0.3, '67 ms grubiej niż 17 ms');
+  assert.ok(timingFactor(5, Tm) > timingFactor(17, Tm), 'za krótkie opóźnienie grubiej');
+  assert.equal(scatterFactor(0), 1); assert.ok(scatterFactor(0.8) < 0.9);
+  const hs = [{ x: 0, y: 0, tFire: 0 }, { x: 4, y: 0, tFire: 25 }, { x: 8, y: 0, tFire: 50 }, { x: 0, y: 4, tFire: 42 }];
+  assert.equal(reliefDelay(hs, 6), 25);
+  assert.equal(reliefDelay([{ x: 0, y: 0 }], 6), null);
+  console.log('opóźnienia: OK');
+}
