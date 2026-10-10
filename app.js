@@ -1044,7 +1044,8 @@ async function prepareViz() {
     polygon: state.closed ? state.polygon : null, floorZ, sampleZ,
     holes: state.holes.map((h) => {
       const top = h.segments.find((x) => x.kind === 'charge'); // najwyższy ładunek: od niego liczymy przybitkę i SDoB
-      return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter,
+      const tp = state.types[h.type];
+      return { x: h.x, y: h.y, z: h.z, tFire: h.tFire ?? 0, mass: h.mass, volume: h.volume, diameterMm: h.diameter, incl: tp.incl ?? 0, inclAz: tp.inclAz ?? null,
         stemTop: top ? top.from : null, kgPerM: top ? top.mass / Math.max(1e-6, top.to - top.from) : 0 };
     }),
     burden: pat.burden, frag: state.frag ? { x50: state.frag.x50, n: state.frag.n } : null,

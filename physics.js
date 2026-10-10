@@ -164,8 +164,13 @@ export function throwVelocities({ blocks, holes, polygon, floorZ, az, burden = 3
     const wFace = 0.45 + 0.55 * Math.exp(-distanceToEdge(polygon, b.x, b.y, az) / (3 * burden));
     const hf = Math.min(Math.max((b.z - floorZ) / top, 0), 1);               // 0 przy spągu, 1 przy wierzchu ławy
     const vH = V_REF * power * throwFactor(pf) * wFace * (0.9 + 0.1 * hf) * (0.8 + 0.4 * rng());
-    const a = a0 + ((rng() - 0.5) * 40 * Math.PI) / 180;
-    const v = { x: Math.sin(a) * vH, y: 0.6 * vH + Math.min(1, vH), z: -Math.cos(a) * vH };
+    // kierunek: azymut nachylenia otworu (otwór pionowy – ku wolnej ścianie), wektor prostopadły do osi otworu:
+    // przy nachyleniu α od pionu wylot jest pod kątem α nad poziomem; niewielkie rozproszenie ±10°
+    const inclined = h.incl > 0.5 && h.inclAz != null;
+    const a = (inclined ? (h.inclAz * Math.PI) / 180 : a0) + ((rng() - 0.5) * 20 * Math.PI) / 180;
+    const el = inclined ? (h.incl * Math.PI) / 180 : 0;
+    const vh = vH * Math.cos(el), vUp0 = vH * Math.sin(el) + Math.min(1, vH) * 0.5; // + lekkie spęcznienie urobku
+    const v = { x: Math.sin(a) * vh, y: vUp0, z: -Math.cos(a) * vh };
     const cf = crater[b.hole] ?? 0, rr = rng();
     if (cf > 0 && h.z != null) {
       // stożek krateru nad górą ładunku: im bliżej otworu i wylotu, tym mocniej w górę i na boki

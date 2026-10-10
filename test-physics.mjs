@@ -90,6 +90,14 @@ import { throwFactor } from './physics.js';
 assert.equal(throwFactor(0.1), 0); assert.equal(throwFactor(0.05), 0);
 assert.ok(Math.abs(throwFactor(0.5) - 1) < 1e-9);
 assert.ok(throwFactor(0.7) > 1.6 && throwFactor(0.7) < 2.1 && throwFactor(0.3) < 0.5 && throwFactor(5) <= 3);
+// kierunek wyrzutu: azymut nachylenia otworu, wektor prostopadły do osi (wylot pod kątem nachylenia nad poziomem)
+{
+  seed = 9; const vi = throwVelocities({ blocks, holes: [{ x: 5, y: 3, mass: 70, volume: 42, incl: 20, inclAz: 0 }], polygon: poly, floorZ: 100, az: 90, burden: 3.5, rng });
+  const mx = vi.reduce((s, x) => s + x.v.x, 0), my = vi.reduce((s, x) => s - x.v.z, 0);
+  assert.ok(my > 5 * Math.abs(mx), 'kierunek wg azymutu otworu (0° = +Y), nie wg ściany (90°)');
+  const elev = Math.atan2(vi[0].v.y - 0.5 * Math.min(1, vi[0].vH), Math.hypot(vi[0].v.x, vi[0].v.z)) * 180 / Math.PI;
+  assert.ok(Math.abs(elev - 20) < 0.5, `kąt wylotu = nachylenie otworu (${elev})`);
+}
 // krótka przybitka: SDoB i wyrzut w górę bloczków nad ładunkiem
 import { sdob, craterFactor } from './physics.js';
 {
