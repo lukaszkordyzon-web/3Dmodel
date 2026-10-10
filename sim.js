@@ -177,11 +177,13 @@ export class BlastViz {
     this.engineKind = engine.kind;
     this.poses = new Float32Array(this.blocks.length * 7);
     if (engine.kind === 'rapier') {
-      // sąsiedzi 3D (promień ≈ 1,8 bloczka); „odjechał” = przesunięty o ponad 0,4 rozmiaru od miejsca startu
+      // sąsiedzi 3D (promień ≈ 1,8 bloczka)
       const n = this.blocks.length, pos = new Float32Array(3 * n), out = new Float32Array(7), fired = new Uint8Array(n);
       this.blocks.forEach((b, i) => { const w = toWorld(b.x, b.y, b.z); pos[3 * i] = w.x; pos[3 * i + 1] = w.y; pos[3 * i + 2] = w.z; });
-      const nbrs = neighborLists(pos, 1.8 * this.size), lim = 0.4 * this.size;
-      const moved = (j) => { if (!fired[j]) return false; engine.pose(j, out, 0); return Math.hypot(out[0] - pos[3 * j], out[1] - pos[3 * j + 1], out[2] - pos[3 * j + 2]) > lim; };
+      // waga sąsiada = jego przesunięcie od startu (już przy kilku cm otwiera się szczelina); bloczki, które odjechały dalej
+      // (np. górna warstwa wcześniejszego rzędu albo wyrzucone w górę przy krótkiej przybitce), ciągną mocniej – stąd też składowa Z
+      const nbrs = neighborLists(pos, 1.8 * this.size);
+      const moved = (j) => { if (!fired[j]) return 0; engine.pose(j, out, 0); const d = Math.hypot(out[0] - pos[3 * j], out[1] - pos[3 * j + 1], out[2] - pos[3 * j + 2]); return d > 0.03 ? d : 0; };
       this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.velPhys[i].v, w: this.velPhys[i].w })),
         (f) => { fired[f.i] = 1; return relief3d(f.i, f.v, pos, nbrs, moved, this.relief); });
     } else this.sim = new BlastSim(engine, this.blocks.map((_, i) => ({ i, tMs: this.tFire[i], v: this.vel[i].v, w: this.vel[i].w })));

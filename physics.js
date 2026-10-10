@@ -133,7 +133,7 @@ export class BlastSim {
 
 // Odciążenie 3D w chwili odpalenia: sąsiednie bloczki (także nad i pod, w promieniu R), które już odpaliły i odjechały,
 // zostawiły wolne miejsce; prędkość bloczka skręca w jego stronę (wagą relief), wartość prędkości bez zmian.
-// pos: Float32Array 3·n (pozycje startowe, układ sceny), moved(j) → czy bloczek j już opuścił swoje miejsce.
+// pos: Float32Array 3·n (pozycje startowe, układ sceny), moved(j) → waga sąsiada j (0 = nie ruszył; np. jego przesunięcie w m).
 export function neighborLists(pos, R) {
   const n = pos.length / 3, cell = R, grid = new Map(), key = (a, b, c) => `${a},${b},${c}`;
   for (let i = 0; i < n; i++) {
@@ -155,9 +155,10 @@ export function neighborLists(pos, R) {
 export function relief3d(i, v, pos, nbrs, moved, relief) {
   let x = 0, y = 0, z = 0;
   for (const j of nbrs[i]) {
-    if (!moved(j)) continue;
+    const wj = +moved(j); // waga: true/false albo przesunięcie sąsiada [m] – im dalej odjechał, tym więcej miejsca
+    if (!(wj > 0)) continue;
     const dx = pos[3 * j] - pos[3 * i], dy = pos[3 * j + 1] - pos[3 * i + 1], dz = pos[3 * j + 2] - pos[3 * i + 2], d = Math.hypot(dx, dy, dz);
-    x += dx / d; y += dy / d; z += dz / d;
+    x += (wj * dx) / d; y += (wj * dy) / d; z += (wj * dz) / d;
   }
   const L = Math.hypot(x, y, z), sp = Math.hypot(v.x, v.y, v.z);
   if (L < 1e-6 || sp < 1e-6 || !(relief > 0)) return v;
