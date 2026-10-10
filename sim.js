@@ -122,7 +122,7 @@ export class BlastViz {
         const pf = h.volume > 0 ? h.mass / h.volume : 0.4, rws = h.rws ?? 100;
         const vOwn = Math.sqrt((2 * eta * Math.max(0, pf - 0.1) * Q * (rws / 100)) / 2000);
         const vh = Math.min(40, Math.sqrt(vOwn ** 2 + (2 * fv * eta * h.mass * Q * (rws / 100)) / M)) * (ctx.power ?? 1);
-        for (const V of [this.vel[i], this.velPhys[i]]) { V.v.x = Math.sin(azr) * vh; V.v.z = -Math.cos(azr) * vh; V.v.y = 0.15 * vh; V.vH = vh; }
+        for (const V of [this.vel[i], this.velPhys[i]]) { V.v.x = Math.sin(azr) * vh; V.v.z = -Math.cos(azr) * vh; V.v.y = Math.max(V.v.y, 0.15 * vh); V.vH = vh; } // podrzut (spęcznienie, kratering) zostaje
         vClaySum += vh;
       }
       this.mwdInfo = { aMin, aMax, nClay, vClay: clayIdx.length ? vClaySum / clayIdx.length : 0 };
